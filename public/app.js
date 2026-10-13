@@ -1,0 +1,1490 @@
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const BASE = (() => { const p = location.pathname.replace(/\/$/, ""); return p || ""; })();
+  const api = (path) => `${BASE}${path}`;
+  const uid = () => Math.random().toString(36).slice(2, 10);
+
+  // ── LocalStorage keys ────────────────────────────────────────────
+  const LS_SETTINGS = "parisa.settings.v2";
+  const LS_CHATS    = "parisa.chats.v1";
+  const LS_ACTIVE   = "parisa.active.v1";
+  const LS_WELCOMED = "parisa.welcomed.v1";
+
+  const WELCOME_TEXT = `আসসালামু ওয়ালাইকুম।
+PARISA MEMORY PORTAL এ আপনাকে স্বাগতম।
+
+আমি এই সিস্টেমের অফিশিয়াল এআই রিপ্রেজেন্টেটিভ (PARISA)।
+
+আমার কাজ হল পারিসা মেমোরি পোর্টালের এআই সহকারী হিসেবে "পারিসা ও রুবেল" — তাদের বৈবাহিক সম্পর্ক, তাদের জীবনের দীর্ঘ এই আড়াই বছরের ঘটনা ও অজানা বাস্তব প্রমাণ সহকারে তুলে ধরা। পারিসার পরিবারের বিভিন্ন পদক্ষেপ এবং এর পেছনের যাবতীয় আইনি ধারা ও ব্ল্যাক ম্যাজিক সম্পর্কিত নিখুঁত তদন্তের রিপোর্ট বিশ্লেষণ করার দায়িত্ব আমার।
+
+আমার কাছে রুবেল ও পারিসার ভালোবাসা, বিবাহ, জীবনের সকল স্মৃতি এবং প্রমাণ সংরক্ষিত আছে।
+
+আমি যা করতে পারি:
+• তাদের সম্পর্কের গল্প ও ইতিহাস বলতে পারি
+• আসল chat history খুঁজে দেখাতে এবং history search-এর সময় প্রাসঙ্গিক screenshot মিলিয়ে দেখাতে পারি
+• বাংলাদেশের বিবাহ আইন, ডিভোর্স আইন সম্পর্কে বিস্তারিত আইনি ধারা বলতে পারি
+• ব্ল্যাক ম্যাজিকের ভয়াবহ প্রভাব সম্পর্কে বিশ্লেষণ করে বলতে পারি
+
+বলুন, আজ আপনাকে কীভাবে সহযোগিতা করতে পারি?`;
+
+  // ── Settings ─────────────────────────────────────────────────────
+  const defaultSettings = { voiceGender: "female", userName: "" };
+
+  let settings = loadSettings();
+  let chats    = loadChats();
+  let activeId = localStorage.getItem(LS_ACTIVE) || null;
+  let pendingAttachment = null;
+
+  function loadSettings() {
+    try { return { ...defaultSettings, ...(JSON.parse(localStorage.getItem(LS_SETTINGS) || "{}")) }; }
+    catch { return { ...defaultSettings }; }
+  }
+  function saveSettings() { localStorage.setItem(LS_SETTINGS, JSON.stringify(settings)); }
+
+  function loadChats() {
+    try { return JSON.parse(localStorage.getItem(LS_CHATS) || "{}"); } catch { return {}; }
+  }
+  function persistChats() { localStorage.setItem(LS_CHATS, JSON.stringify(chats)); }
+
+  function newChat() {
+    const id = uid();
+    chats[id] = { id, title: "নতুন চ্যাট", messages: [], pinned: false, updatedAt: Date.now() };
+    activeId = id;
+    localStorage.setItem(LS_ACTIVE, id);
+    persistChats();
+    renderChat();
+    renderSidebar();
+  }
+  function getActive() {
+    if (!activeId || !chats[activeId]) return null;
+    return chats[activeId];
+  }
+
+  // ── Rendering ────────────────────────────────────────────────────
+  const messagesEl = $("#messages");
+  const welcomeEl  = $("#welcome");
+
+  function renderChat() {
+    const c = getActive();
+    messagesEl.innerHTML = "";
+    if (!c || c.messages.length === 0) {
+      welcomeEl.style.display = "flex";
+      messagesEl.classList.remove("show");
+      return;
+    }
+    welcomeEl.style.display = "none";
+    messagesEl.classList.add("show");
+    for (const m of c.messages) appendMessage(m, false);
+    scrollToBottom();
+  }
+
+  function appendMessage(m, animate = true) {
+    const row = document.createElement("div");
+    row.className = "msg-row " + (m.role === "user" ? "user" : "assistant");
+    const bubble = document.createElement("div");
+    bubble.className = "msg " + (m.role === "user" ? "user" : "assistant");
+    if (m.image) {
+      const img = document.createElement("img");
+      img.className = "attached"; img.src = m.image;
+      bubble.appendChild(img);
+    }
+    const body = document.createElement("div");
+    body.className = "msg-body";
+    if (m.role === "assistant") {
+      body.innerHTML = renderMarkdown(m.text || "");
+    } else {
+      body.textContent = m.text || "";
+    }
+    bubble.appendChild(body);
+    if (m.role === "assistant" && m.text) bubble.appendChild(makeMsgActions(m.text, bubble));
+    row.appendChild(bubble);
+    messagesEl.appendChild(row);
+    if (m.role === "assistant" && m.chatHistory?.length) {
+      appendChatHistory(m.chatHistory, m.screenshots || [], false);
+    }
+    if (animate) scrollToBottom();
+    return { row, bubble, body };
+  }
+
+  function makeMsgActions(text, bubble) {
+    const acts = document.createElement("div");
+    acts.className = "msg-actions";
+    const copyBtn = document.createElement("button");
+    copyBtn.innerHTML = `<svg class="ic"><use href="#i-copy"/></svg> কপি`;
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(text);
+      copyBtn.innerHTML = `<svg class="ic"><use href="#i-copy"/></svg> হয়েছে`;
+      setTimeout(() => (copyBtn.innerHTML = `<svg class="ic"><use href="#i-copy"/></svg> কপি`), 1200);
+    };
+    const speakBtn = document.createElement("button");
+    speakBtn.innerHTML = `<svg class="ic"><use href="#i-volume"/></svg> ভয়েস`;
+    speakBtn.title = "ভয়েস চালু/বন্ধ";
+    speakBtn.onclick = () => speak(text, speakBtn);
+    acts.append(copyBtn, speakBtn);
+    return acts;
+  }
+
+  // ── Investigative table enhancer: platform colors, Golden Age glow, Phase badges ──
+  function enhanceInvestigativeTable(html) {
+    if (!html || !html.includes("<table")) return html;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    wrap.querySelectorAll("table").forEach(table => {
+      const headers = [...table.querySelectorAll("thead th")]
+        .map(th => (th.textContent || "").trim().toLowerCase());
+      const findHeader = (...names) => headers.findIndex(h => names.some(name => h.includes(name)));
+      const dateIndex = findHeader("তারিখ", "সময়", "সময়", "date", "time");
+      const platformIndex = findHeader("প্ল্যাটফর্ম", "platform");
+      const analysisIndex = findHeader("বিশ্লেষণ", "analysis");
+
+      table.querySelectorAll("tbody tr").forEach(tr => {
+      const cells = tr.querySelectorAll("td");
+      if (cells.length < 2) return;
+      // Prefer header-driven indexes. Fallback keeps old table formats working.
+      const detectedDateIndex = dateIndex >= 0
+        ? dateIndex
+        : [...cells].findIndex(td => /\b20\d{2}[.\-\/]\d{1,2}[.\-\/]\d{1,2}\b/.test(td.textContent || ""));
+      const detectedPlatformIndex = platformIndex >= 0
+        ? platformIndex
+        : [...cells].findIndex(td => /whatsapp|telegram|messenger|facebook/i.test(td.textContent || ""));
+      const dateText = (cells[detectedDateIndex >= 0 ? detectedDateIndex : 0].textContent || "").trim();
+      const platformText = (cells[detectedPlatformIndex >= 0 ? detectedPlatformIndex : 1].textContent || "").trim().toLowerCase();
+
+      // Platform color borders
+      if (platformText.includes("whatsapp")) tr.classList.add("whatsapp-row");
+      else if (platformText.includes("telegram")) tr.classList.add("telegram-row");
+      else if (platformText.includes("messenger") || platformText.includes("facebook")) tr.classList.add("messenger-row");
+
+      // Parse date for Phase detection
+      const dm = dateText.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+      if (dm) {
+        const y = +dm[1], mo = +dm[2];
+        // Phase A: Feb-Jul 2024 — Golden Age glow
+        if (y === 2024 && mo >= 2 && mo <= 7) {
+          tr.classList.add("golden-glow");
+          tr.classList.add("phase-a-row");
+        }
+        // Phase B: Oct 2024 onwards — Shift
+        else if ((y === 2024 && mo >= 10) || (y === 2025 && mo <= 3)) tr.classList.add("phase-b-row");
+        // Phase D: Apr-Nov 2025 — Polarization
+        else if (y === 2025 && mo >= 4 && mo <= 11) tr.classList.add("phase-d-row");
+      }
+
+      // Black magic rows
+      const rowText = tr.textContent || "";
+      if (/জাদু|ব্ল্যাক\s*ম্যাজিক|black\s*magic|তান্ত্রিক|কবিরাজ|হুজুর/i.test(rowText)) tr.classList.add("blackmagic-row");
+
+      // Phase labels: remove them from the actual analysis column.
+      const detectedAnalysisIndex = analysisIndex >= 0 ? analysisIndex : cells.length - 1;
+      const analysisCell = cells[detectedAnalysisIndex];
+      if (analysisCell) {
+        analysisCell.innerHTML = analysisCell.innerHTML.replace(/\[Phase [A-D]\]/gi, "").trim();
+      }
+      });
+    });
+    // Remove numeric ref-num badges [1], [2] etc — user doesn't want reference numbers
+    wrap.querySelectorAll("td, p, li").forEach(el => {
+      el.innerHTML = el.innerHTML.replace(/\[([0-9০-৯]{1,2})\]/g, "");
+    });
+    return wrap.innerHTML;
+  }
+
+  function renderMarkdown(text) {
+    const imgBase = api("/image/");
+
+    // [IMAGE:FILE_ID] → screenshot wrapper; OCR is not automatic
+    text = text.replace(/\[IMAGE:([A-Za-z0-9_\-]+)\]/g, (_, fid) =>
+      `SSPLACEHOLDER_${fid}_SSPLACEHOLDER`
+    );
+
+    // ── WhatsApp-style chat log rendering ──────────────────────────
+    if (/━+/.test(text) && /\[\d{1,2}:\d{2}\]/.test(text)) {
+      const lines = text.split("\n");
+      let html = "";
+      let inChat = false;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (/━{3,}/.test(trimmed)) {
+          if (!inChat) { html += `<div class="chat-log">`; inChat = true; }
+          continue;
+        }
+        const m = trimmed.match(/^\[(\d{1,2}:\d{2})\]\s*([^:]+?)\s*:\s*([\s\S]*)$/);
+        if (m && inChat) {
+          const [, time, sender, msg] = m;
+          const sLower = sender.trim().toLowerCase();
+          const isRight = sLower === "রুবেল" || sLower === "rubel" || sLower === "kalachan" || sLower === "কালাচাঁন" || sLower === "কালাচাঁদ";
+          const side = isRight ? "right" : "left";
+          const sName = isRight ? "রুবেল" : sender.trim();
+          const escapedMsg = msg.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+          html += `<div class="cl-row ${side}"><div class="cl-bubble"><div class="cl-name">${sName}</div><div>${escapedMsg}</div><div class="cl-time">${time}</div></div></div>`;
+        } else if (inChat && trimmed && !/^\s*$/.test(trimmed) && !m) {
+          html += `<div class="cl-header">${trimmed.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>`;
+        }
+      }
+      if (inChat) html += `</div>`;
+      if (html) {
+        const beforeChat = text.split(/━{3,}/)[0].trim();
+        let prefix = "";
+        if (beforeChat) {
+          try { prefix = DOMPurify.sanitize(marked.parse(beforeChat, { breaks: true, gfm: true })); }
+          catch { prefix = beforeChat.replace(/\n/g, "<br/>"); }
+        }
+        let out = DOMPurify.sanitize(prefix + html, {
+          ADD_TAGS: ["img", "div"], ADD_ATTR: ["src", "class", "alt", "loading", "onerror", "data-ssid"]
+        });
+        out = replaceSsPlaceholders(out, imgBase);
+        return out;
+      }
+    }
+
+    let html;
+    try {
+      html = DOMPurify.sanitize(
+        marked.parse(text, { breaks: true, gfm: true }),
+        { ADD_TAGS: ["img", "div"], ADD_ATTR: ["src", "class", "alt", "loading", "onerror", "data-ssid"] }
+      );
+    } catch { html = text.replace(/\n/g, "<br/>"); }
+
+    // Wrap <table> elements in scroll container
+    html = html.replace(/<table([\s\S]*?)<\/table>/gi, (match) =>
+      `<div class="tbl-wrap">${match}</div>`
+    );
+
+    // Platform colors, golden age glow, ref-num badges
+    html = enhanceInvestigativeTable(html);
+
+    html = replaceSsPlaceholders(html, imgBase);
+    return html;
+  }
+
+  // Screenshot placeholder → show the image only. Screenshot OCR/analysis is
+  // intentionally disabled because automatic readings were unreliable.
+  function replaceSsPlaceholders(html, imgBase) {
+    return html.replace(/SSPLACEHOLDER_([A-Za-z0-9_\-]+)_SSPLACEHOLDER/g, (_, fid) =>
+      `<div class="ss-wrap" data-ssid="${fid}">` +
+        `<img src="${imgBase}${fid}" class="drive-img" alt="স্ক্রিনশট" loading="lazy" onerror="this.style.display='none'">` +
+        `<div class="ss-view-label">স্ক্রিনশট — শুধু দেখা যাচ্ছে</div>` +
+      `</div>`
+    );
+  }
+
+  function scrollToBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+  }
+
+  // ── Sidebar ──────────────────────────────────────────────────────
+  function renderSidebar() {
+    const pinned = $("#pinnedList"), recent = $("#recentList");
+    pinned.innerHTML = ""; recent.innerHTML = "";
+    const list = Object.values(chats).sort((a, b) => b.updatedAt - a.updatedAt);
+    for (const c of list) (c.pinned ? pinned : recent).appendChild(makeChatItem(c));
+    if (!pinned.children.length) pinned.innerHTML = `<div style="opacity:.45;font-size:12px;padding:6px 4px;">কিছুই পিন করা নেই</div>`;
+    if (!recent.children.length) recent.innerHTML = `<div style="opacity:.45;font-size:12px;padding:6px 4px;">সাম্প্রতিক কোনো চ্যাট নেই</div>`;
+  }
+  function makeChatItem(c) {
+    const el = document.createElement("div");
+    el.className = "chat-item" + (c.id === activeId ? " active" : "");
+    el.innerHTML = `<div class="ci-title">${escapeHtml(c.title || "নতুন চ্যাট")}</div>
+      <div class="ci-act">
+        <button title="পিন"><svg class="ic"><use href="#i-pin"/></svg></button>
+        <button title="রিনেম"><svg class="ic"><use href="#i-edit"/></svg></button>
+        <button title="ডিলিট"><svg class="ic"><use href="#i-trash"/></svg></button>
+      </div>`;
+    const [pinBtn, renameBtn, delBtn] = el.querySelectorAll(".ci-act button");
+    el.querySelector(".ci-title").onclick = () => {
+      activeId = c.id; localStorage.setItem(LS_ACTIVE, c.id);
+      renderChat(); renderSidebar(); closeSidebar();
+    };
+    pinBtn.onclick = (e) => { e.stopPropagation(); c.pinned = !c.pinned; persistChats(); renderSidebar(); };
+    renameBtn.onclick = (e) => {
+      e.stopPropagation();
+      const t = prompt("নতুন নাম:", c.title);
+      if (t != null) { c.title = t.trim() || c.title; persistChats(); renderSidebar(); }
+    };
+    delBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (confirm("চ্যাট ডিলিট করবেন?")) {
+        delete chats[c.id];
+        if (activeId === c.id) activeId = null;
+        persistChats(); renderSidebar(); renderChat();
+      }
+    };
+    return el;
+  }
+
+  // ── Sidebar open/close ───────────────────────────────────────────
+  function openSidebar()  { renderSidebar(); $("#sidebar").classList.add("open"); $("#sidebarScrim").classList.add("show"); }
+  function closeSidebar() { $("#sidebar").classList.remove("open"); $("#sidebarScrim").classList.remove("show"); }
+  $("#openSidebar").onclick  = openSidebar;
+  $("#closeSidebar").onclick = closeSidebar;
+  $("#sidebarScrim").onclick = closeSidebar;
+  $("#newChatBtn").onclick   = () => { newChat(); closeSidebar(); };
+
+  // ── Settings modal ───────────────────────────────────────────────
+  const settingsModal = $("#settingsModal");
+  const settingsScrim = $("#settingsScrim");
+
+  let _cachedVersion = null;
+  async function fetchAppVersion() {
+    if (_cachedVersion) return _cachedVersion;
+    try {
+      const r = await fetch(api("/version"));
+      if (r.ok) {
+        const d = await r.json();
+        _cachedVersion = d.version || null;
+      }
+    } catch {}
+    return _cachedVersion;
+  }
+
+  function openSettings() {
+    const g = settings.voiceGender || "female";
+    document.querySelector(`input[name="voiceGender"][value="${g}"]`).checked = true;
+    $("#userName").value = settings.userName || "";
+    settingsModal.classList.add("show");
+    settingsScrim.classList.add("show");
+    fetchAppVersion().then(v => {
+      const el = $("#appVersionText");
+      if (el) el.textContent = v || "–";
+      const sv = $(".side-version");
+      if (sv && v) sv.textContent = v;
+    });
+  }
+
+  function closeSettings() {
+    settingsModal.classList.remove("show");
+    settingsScrim.classList.remove("show");
+  }
+  $("#openSettings").onclick  = openSettings;
+  $("#closeSettings").onclick = closeSettings;
+  settingsScrim.onclick       = closeSettings;
+
+  $("#saveSettings").onclick = () => {
+    const sel = document.querySelector('input[name="voiceGender"]:checked');
+    settings.voiceGender = sel ? sel.value : "female";
+    settings.userName    = $("#userName").value.trim();
+    saveSettings();
+    closeSettings();
+  };
+  $("#resetSettings").onclick = () => {
+    if (confirm("সব সেটিংস রিসেট করবেন?")) {
+      settings = { ...defaultSettings };
+      saveSettings();
+      openSettings();
+    }
+  };
+  const refreshDriveBtn = $("#refreshDrive");
+  if (refreshDriveBtn) refreshDriveBtn.onclick = async () => {
+    const el = $("#refreshStatus");
+    if (el) el.textContent = "আপডেট হচ্ছে...";
+    try {
+      const r = await fetch(api("/refresh-drive"), { method: "POST" });
+      const d = await r.json();
+      if (el) el.textContent = d.ok ? "✅ আপডেট হয়েছে" : "❌ সমস্যা হয়েছে";
+    } catch { if (el) el.textContent = "❌ সংযোগ সমস্যা"; }
+    setTimeout(() => { if (el) el.textContent = ""; }, 3000);
+  };
+
+  $("#testVoice").onclick = () => {
+    const sel = document.querySelector('input[name="voiceGender"]:checked');
+    const testGender = sel ? sel.value : (settings.voiceGender || "female");
+    const prevGender = settings.voiceGender;
+    settings.voiceGender = testGender;
+    speak("আসসালামু ওয়ালাইকুম। পারিসা মেমোরি পোর্টালে আপনাকে স্বাগতম।");
+    settings.voiceGender = prevGender;
+  };
+
+  // ── Voice System ─────────────────────────────────────────────────
+  let currentAudio = null;
+  let currentUtter = null;
+  let currentSpeakBtn = null;
+  let speechVersion = 0;
+
+  // Text পরিষ্কার করো — TTS-এর আগে
+  function stripForTTS(str) {
+    if (!str) return "";
+    // English শব্দ — Microsoft TTS নিজেই পড়তে পারে, তাই রাখছি (বানান করবে না)
+    // ইমোজি বাদ
+    str = str.replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}]/gu, "");
+    // markdown বাদ
+    str = str
+      .replace(/\[IMAGE:[^\]]*\]/g, "")
+      .replace(/#{1,6}\s*/g, "")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace(/__([^_]+)__/g, "$1")
+      .replace(/_([^_]+)_/g, "$1")
+      .replace(/`[^`]+`/g, "")
+      .replace(/^[-*•]\s+/gm, "")
+      .replace(/^\d+\.\s+/gm, "")
+      .replace(/^>\s*/gm, "")
+      .replace(/---+/g, "")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+    // line breaks
+    str = str.replace(/\n{2,}/g, "। ").replace(/\n/g, " ");
+    return str.replace(/\s+/g, " ").trim();
+  }
+
+  function _resetSpeakBtn(btn) {
+    if (btn) btn.innerHTML = `<svg class="ic"><use href="#i-volume"/></svg> ভয়েস`;
+  }
+
+  function _stopAll() {
+    speechVersion++;
+    if (currentAudio) {
+      const audio = currentAudio;
+      audio._cancelled = true;
+      if (typeof audio._finish === "function") audio._finish();
+      audio.pause();
+      currentAudio = null;
+    }
+    if (currentUtter) { speechSynthesis.cancel(); currentUtter = null; }
+    if (currentSpeakBtn) { _resetSpeakBtn(currentSpeakBtn); currentSpeakBtn = null; }
+  }
+
+  // ── Audio unlock (mobile autoplay policy fix) ─────────────────────
+  let _audioCtx = null;
+  function _ensureAudioCtx() {
+    if (_audioCtx) return;
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
+  }
+  // Call on every user gesture to keep audio context alive
+  document.addEventListener("touchstart", _ensureAudioCtx, { once: false, passive: true });
+  document.addEventListener("click", _ensureAudioCtx, { once: false, passive: true });
+
+  // ── Show "tap to play" toast when autoplay is blocked ────────────
+  function _showPlayToast(audioEl, url, btn) {
+    let toast = document.getElementById("_play_toast");
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.id = "_play_toast";
+      toast.style.cssText = "position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(0,200,255,.18);backdrop-filter:blur(12px);border:1px solid rgba(0,200,255,.35);color:#d8f8ff;padding:12px 20px;border-radius:40px;font-size:15px;z-index:999;cursor:pointer;box-shadow:0 4px 24px rgba(0,0,0,.3)";
+      document.body.appendChild(toast);
+    }
+    toast.textContent = "🔊 ট্যাপ করুন — ভয়েস শুনুন";
+    toast.style.display = "block";
+    const play = () => {
+      toast.style.display = "none";
+      toast.removeEventListener("click", play);
+      audioEl.play().then(() => {
+        if (btn) btn.innerHTML = `<svg class="ic"><use href="#i-volume"/></svg> চলছে`;
+      }).catch(() => {
+        currentAudio = null; currentSpeakBtn = null; URL.revokeObjectURL(url); _resetSpeakBtn(btn);
+      });
+    };
+    toast.addEventListener("click", play);
+    setTimeout(() => { toast.style.display = "none"; toast.removeEventListener("click", play); if (currentAudio === audioEl) { currentAudio = null; currentSpeakBtn = null; URL.revokeObjectURL(url); _resetSpeakBtn(btn); } }, 15000);
+  }
+
+  // ── শুধুমাত্র Microsoft Edge TTS — কোনো ব্রাউজার ভয়েস fallback নেই ──
+  // নেটওয়ার্ক-লেভেলে ব্যর্থ হলে ক্লায়েন্ট নিজেও কয়েকবার রিট্রাই করে; সব
+  // চেষ্টা ব্যর্থ হলে ব্যবহারকারীকে স্পষ্ট এরর দেখানো হয় — কখনো silently fail করে না,
+  // এবং কখনো ব্রাউজারের নিজস্ব speechSynthesis ভয়েসে চলে যায় না।
+  function _showErrorToast(message) {
+    let toast = document.getElementById("_voice_err_toast");
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.id = "_voice_err_toast";
+      toast.style.cssText = "position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(255,60,60,.18);backdrop-filter:blur(12px);border:1px solid rgba(255,60,60,.4);color:#ffe0e0;padding:12px 20px;border-radius:40px;font-size:15px;z-index:999;box-shadow:0 4px 24px rgba(0,0,0,.3)";
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.style.display = "block";
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(() => { toast.style.display = "none"; }, 6000);
+  }
+
+  // Microsoft Edge TTS সার্ভার এন্ডপয়েন্ট কল করে; নেটওয়ার্ক ব্যর্থতায় কয়েকবার রিট্রাই করে।
+  // সফল হলে অডিও Blob রিটার্ন করে, সব চেষ্টা ব্যর্থ হলে null রিটার্ন করে (silent fail নয় — caller UI-তে জানায়)।
+  async function _fetchVoiceBlob(clean) {
+    const MAX_CLIENT_ATTEMPTS = 3;
+    let lastErr = null;
+    for (let i = 0; i < MAX_CLIENT_ATTEMPTS; i++) {
+      try {
+        const r = await fetch(api("/voice"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: clean.slice(0, 3000), gender: settings.voiceGender || "female" }),
+        });
+        if (r.status === 204) return null; // খালি টেক্সট — বলার কিছু নেই
+        if (r.ok) {
+          const blob = await r.blob();
+          if (blob.size > 100) return blob;
+          lastErr = new Error("empty audio blob");
+        } else {
+          lastErr = new Error(`voice endpoint status ${r.status}`);
+        }
+      } catch (e) {
+        lastErr = e;
+      }
+      if (i < MAX_CLIENT_ATTEMPTS - 1) await new Promise(res => setTimeout(res, 400));
+    }
+    console.error("Voice fetch failed after retries:", lastErr);
+    return undefined; // undefined = সব চেষ্টা ব্যর্থ (204-এর null থেকে আলাদা করার জন্য)
+  }
+
+  async function speak(text, btn = null) {
+    if (!text || !text.trim()) return;
+    _ensureAudioCtx();
+
+    const wasBtn = currentSpeakBtn;
+    _stopAll();
+    if (wasBtn && wasBtn === btn) return; // toggle off
+
+    if (btn) btn.innerHTML = `<svg class="ic"><use href="#i-volume"/></svg> <span class="tts-dots"><span></span><span></span><span></span></span>`;
+    const clean = stripForTTS(text);
+    if (!clean) { _resetSpeakBtn(btn); return; }
+
+    currentSpeakBtn = btn;
+
+    const blob = await _fetchVoiceBlob(clean);
+    if (blob === null) { currentSpeakBtn = null; _resetSpeakBtn(btn); return; }
+    if (blob === undefined) {
+      currentSpeakBtn = null; _resetSpeakBtn(btn);
+      _showErrorToast("⚠️ ভয়েস তৈরি করা যায়নি, আবার চেষ্টা করুন");
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
+    currentAudio = new Audio(url);
+    currentAudio.onended = () => { currentAudio = null; currentSpeakBtn = null; URL.revokeObjectURL(url); _resetSpeakBtn(btn); };
+    currentAudio.onerror = () => { currentAudio = null; currentSpeakBtn = null; URL.revokeObjectURL(url); _resetSpeakBtn(btn); _showErrorToast("⚠️ ভয়েস চালানো যায়নি"); };
+    try {
+      if (_audioCtx) await _audioCtx.resume();
+      await currentAudio.play();
+      if (btn) btn.innerHTML = `<svg class="ic"><use href="#i-volume"/></svg> চলছে`;
+    } catch (playErr) {
+      if (playErr.name === "NotAllowedError" || playErr.name === "NotSupportedError") {
+        _showPlayToast(currentAudio, url, btn);
+      } else {
+        currentAudio = null; currentSpeakBtn = null; URL.revokeObjectURL(url); _resetSpeakBtn(btn);
+        _showErrorToast("⚠️ ভয়েস চালানো যায়নি");
+      }
+    }
+  }
+
+  // speakAndWait — Gemini-style progressive caption synced to audio duration
+  async function speakAndWait(text, captionEl = null, statusEl = null) {
+    if (!text || !text.trim()) return;
+    _stopAll();
+    const mySpeechVersion = speechVersion;
+    _ensureAudioCtx();
+    const clean = stripForTTS(text);
+    if (!clean) return;
+    if (statusEl) statusEl.textContent = "বলছি…";
+
+    const blob = await _fetchVoiceBlob(clean);
+    if (!blob) {
+      if (blob === undefined) _showErrorToast("⚠️ ভয়েস তৈরি করা যায়নি, আবার চেষ্টা করুন");
+      return;
+    }
+    if (mySpeechVersion !== speechVersion) return;
+
+    const url = URL.createObjectURL(blob);
+    currentAudio = new Audio(url);
+
+    // ── Gemini-style: words appear one-by-one synced to audio duration ──
+    if (captionEl) {
+      const words = clean.split(/\s+/).filter(Boolean);
+      let capTimer = null;
+      captionEl.innerHTML = "";
+      captionEl.style.opacity = "1";
+      captionEl.style.transition = "";
+
+      const startWordReveal = (dur) => {
+        if (capTimer) clearInterval(capTimer);
+        const msPerWord = Math.max(55, Math.min(320, (dur * 900) / Math.max(words.length, 1)));
+        let idx = 0;
+        capTimer = setInterval(() => {
+          if (idx < words.length) {
+            const sp = document.createElement("span");
+            sp.className = "cap-word";
+            sp.textContent = words[idx] + " ";
+            captionEl.appendChild(sp);
+            idx++;
+          } else { clearInterval(capTimer); }
+        }, msPerWord);
+      };
+
+      currentAudio.addEventListener("loadedmetadata", () => {
+        const dur = isFinite(currentAudio.duration) && currentAudio.duration > 0
+          ? currentAudio.duration : 4;
+        startWordReveal(dur);
+      }, { once: true });
+
+      // fallback: loadedmetadata may not fire before playback on some browsers
+      setTimeout(() => {
+        if (captionEl && !captionEl.children.length) startWordReveal(5);
+      }, 350);
+
+      // cleanup on stop
+      ["ended","error"].forEach(ev => {
+        currentAudio.addEventListener(ev, () => clearInterval(capTimer), { once: true });
+      });
+    }
+
+    const audio = currentAudio;
+    if (mySpeechVersion !== speechVersion) {
+      _stopAll();
+      return;
+    }
+    await new Promise(res => {
+      let finished = false;
+      const done = () => {
+        if (finished) return;
+        finished = true;
+        if (audio._finish === done) delete audio._finish;
+        if (currentAudio === audio) currentAudio = null;
+        URL.revokeObjectURL(url);
+        res();
+      };
+      audio._finish = done;
+      audio.addEventListener("ended", done, { once: true });
+      audio.addEventListener("error", done, { once: true });
+      audio.play().catch(() => done());
+    });
+
+    if (audio._cancelled) return;
+    // Fade caption out 1.8 s after speaking ends
+    if (captionEl && captionEl.children.length) {
+      await new Promise(r => setTimeout(r, 1800));
+      captionEl.style.transition = "opacity 0.55s ease";
+      captionEl.style.opacity = "0";
+      await new Promise(r => setTimeout(r, 600));
+      captionEl.innerHTML = "";
+      captionEl.style.opacity = "1";
+      captionEl.style.transition = "";
+    }
+  }
+
+  // Listen while PARISA is speaking. The first interim result stops TTS
+  // immediately; the final result is returned as the next user turn.
+  function startBargeIn(lang, onStart, onFinal) {
+    let active = true;
+    let rec = null;
+    let heard = "";
+    let interrupted = false;
+    let finalDelivered = false;
+    let restartTimer = null;
+
+    const start = () => {
+      if (!active || !SR) return;
+      rec = makeRecognizer(lang, false);
+      if (!rec) return;
+      heard = "";
+      interrupted = false;
+      finalDelivered = false;
+      rec.onresult = (e) => {
+        let interim = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const text = e.results[i][0].transcript;
+          if (e.results[i].isFinal) heard += text; else interim += text;
+        }
+        const spoken = (heard || interim).trim();
+        if (spoken && !interrupted) {
+          interrupted = true;
+          onStart?.();
+        }
+        if (heard.trim()) {
+          active = false;
+          if (!finalDelivered) {
+            finalDelivered = true;
+            onFinal?.(heard.trim());
+          }
+          try { rec.stop(); } catch {}
+        }
+      };
+      rec.onend = () => {
+        rec = null;
+        if (active) restartTimer = setTimeout(start, 120);
+        else if (interrupted && heard.trim() && !finalDelivered) {
+          finalDelivered = true;
+          onFinal?.(heard.trim());
+        }
+      };
+      rec.onerror = () => {
+        rec = null;
+        if (active) restartTimer = setTimeout(start, 250);
+        else if (interrupted && heard.trim() && !finalDelivered) {
+          finalDelivered = true;
+          onFinal?.(heard.trim());
+        }
+      };
+      try { rec.start(); } catch { restartTimer = setTimeout(start, 250); }
+    };
+    start();
+    return () => {
+      active = false;
+      if (restartTimer) clearTimeout(restartTimer);
+      if (rec) {
+        rec.onend = null;
+        rec.onerror = null;
+        try { rec.stop(); } catch {}
+        rec = null;
+      }
+    };
+  }
+
+  async function interruptibleSpeakAndWait(text, captionEl, statusEl, lang) {
+    let finalResolve;
+    let settled = false;
+    const finalText = new Promise(resolve => { finalResolve = resolve; });
+    const stopBargeIn = startBargeIn(
+      lang,
+      () => _stopAll(),
+      text => finalResolve(text)
+    );
+    const result = await Promise.race([
+      speakAndWait(text, captionEl, statusEl).then(() => ({ spoken: true })),
+      finalText.then(text => ({ interrupted: text })),
+    ]);
+    settled = true;
+    stopBargeIn();
+    return result.interrupted || null;
+  }
+
+  // ── Composer ─────────────────────────────────────────────────────
+  const composerInput = $("#composerInput");
+  composerInput.addEventListener("input", () => {
+    composerInput.style.height = "auto";
+    composerInput.style.height = Math.min(composerInput.scrollHeight, 180) + "px";
+  });
+  composerInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); const p = composerInput.selectionStart; composerInput.value = composerInput.value.slice(0,p) + "\n" + composerInput.value.slice(p); composerInput.selectionStart = composerInput.selectionEnd = p+1; composerInput.dispatchEvent(new Event("input")); }
+  });
+  // ── Button click glow effect ─────────────────────────────────────
+  function addGlow(btn) {
+    if (!btn) return;
+    btn.classList.remove("btn-click-glow");
+    void btn.offsetWidth; // reflow to restart animation
+    btn.classList.add("btn-click-glow");
+    setTimeout(() => btn.classList.remove("btn-click-glow"), 500);
+  }
+  // Attach glow to all buttons
+  ["sendBtn","micBtn","attachBtn","cameraBtn","audioCallBtn","videoCallBtn"].forEach(id => {
+    const el = $("#" + id);
+    if (el) el.addEventListener("pointerdown", () => addGlow(el), { passive: true });
+  });
+
+  $("#sendBtn").onclick  = sendMessage;
+  $("#attachBtn").onclick = () => { addGlow($("#attachBtn")); $("#fileInput").click(); };
+  $("#fileInput").addEventListener("change", async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const dataUrl = await fileToDataUrl(f);
+    pendingAttachment = { dataUrl, mime: f.type || "application/octet-stream", name: f.name };
+    renderAttachedBar();
+    e.target.value = "";
+  });
+  function renderAttachedBar() {
+    const bar = $("#attachedBar");
+    bar.innerHTML = "";
+    if (!pendingAttachment) return;
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    chip.innerHTML = `📎 ${escapeHtml(pendingAttachment.name)} <button title="বাদ দিন">✕</button>`;
+    chip.querySelector("button").onclick = () => { pendingAttachment = null; renderAttachedBar(); };
+    bar.appendChild(chip);
+  }
+  function fileToDataUrl(file) {
+    return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+  }
+
+  // Suggestion buttons
+  $$(".sugg").forEach(b => b.addEventListener("click", () => {
+    composerInput.value = b.textContent.trim();
+    sendMessage();
+  }));
+
+  // ── Send message ─────────────────────────────────────────────────
+  async function sendMessage() {
+    const text = composerInput.value.trim();
+    if (!text && !pendingAttachment) return;
+    if (!getActive()) newChat();
+    const c = getActive();
+
+    const userMsg = { role: "user", text: text || "এই ফাইলটা দেখো", image: pendingAttachment?.dataUrl };
+    c.messages.push(userMsg);
+    if (c.messages.length === 1) c.title = (text || "ফাইল").slice(0, 36);
+    c.updatedAt = Date.now();
+    persistChats(); renderSidebar();
+
+    welcomeEl.style.display = "none";
+    messagesEl.classList.add("show");
+    appendMessage(userMsg);
+
+    composerInput.value = "";
+    composerInput.style.height = "auto";
+
+    const typing = document.createElement("div");
+    typing.className = "msg-row assistant";
+    typing.innerHTML = `<div class="msg assistant"><div class="typing"><span></span><span></span><span></span></div></div>`;
+    messagesEl.appendChild(typing);
+    scrollToBottom();
+
+    const attachment = pendingAttachment;
+    pendingAttachment = null;
+    renderAttachedBar();
+
+    try {
+      let reply, chatHistory = null, screenshots = [], responseHistoryContext = null;
+      if (attachment && attachment.mime.startsWith("image/")) {
+        // Images are displayed, never OCR-read or sent to a vision model.
+        reply = "স্ক্রিনশটটি দেখানো হলো। এর ভেতরের লেখা স্বয়ংক্রিয়ভাবে পড়া বা বিশ্লেষণ করা হবে না।";
+        c.historyContext = null;
+      } else if (attachment && !attachment.mime.startsWith("image/")) {
+        const r = await fetch(api("/analyze"), {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: text || "এই ফাইলটা বিশ্লেষণ করে বাংলায় বল।",
+            file: attachment.dataUrl, mime: attachment.mime,
+            userName: settings.userName,
+          }),
+        });
+        reply = (await r.json()).reply;
+      } else {
+        const allMsgs = c.messages.map(m => ({ role: m.role, text: m.text }));
+        const msgs = allMsgs.length > 12 ? allMsgs.slice(-12) : allMsgs;
+        const r = await fetch(api("/chat"), {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: msgs,
+            userName: settings.userName,
+            historyContext: c.historyContext || null,
+          }),
+        });
+        const chatData = await r.json();
+        reply = chatData.reply;
+        chatHistory = chatData.chatHistory || null;
+        screenshots = chatData.screenshots || [];
+        responseHistoryContext = chatData.historyContext || null;
+        c.historyContext = responseHistoryContext;
+      }
+
+      typing.remove();
+      const botMsg = {
+        role: "assistant",
+        text: reply || "(কোনো উত্তর নেই)",
+        ...(chatHistory?.length ? { chatHistory, screenshots } : {}),
+      };
+      c.messages.push(botMsg);
+      c.updatedAt = Date.now();
+      persistChats(); renderSidebar();
+
+      // Typing animation + chat history bubbles
+      typeOut(botMsg, () => {
+        if (chatHistory && chatHistory.length > 0) appendChatHistory(chatHistory, screenshots);
+      });
+      speak(botMsg.text);
+
+    } catch {
+      typing.remove();
+      const botMsg = { role: "assistant", text: "দুঃখিত, এই মুহূর্তে যোগাযোগ করতে পারছি না।" };
+      c.historyContext = null;
+      c.messages.push(botMsg);
+      persistChats();
+      appendMessage(botMsg);
+      speak(botMsg.text);
+    }
+  }
+
+  // ── Typing animation ─────────────────────────────────────────────
+  function typeOut(m, onDone = () => {}) {
+    const { body, bubble } = appendMessage({ role: "assistant", text: "" });
+    const full = m.text;
+    let i = 0;
+    const step = Math.max(1, Math.floor(full.length / 200));
+    const iv = setInterval(() => {
+      i = Math.min(full.length, i + step);
+      body.innerHTML = renderMarkdown(full.slice(0, i));
+      scrollToBottom();
+      if (i >= full.length) {
+        clearInterval(iv);
+        bubble.appendChild(makeMsgActions(full, bubble));
+        onDone();
+      }
+    }, 18);
+  }
+
+  // ── Speech-to-text ────────────────────────────────────────────────
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognizer = null, recOn = false;
+
+  // Language fallback chain: bn-BD → bn-IN → (browser default)
+  const _langChain = ["bn-BD", "bn-IN", ""];
+  let _langIdx = 0; // current working lang index
+
+  function makeRecognizer(lang, continuous = false) {
+    if (!SR) return null;
+    const r = new SR();
+    r.lang = (lang !== undefined) ? lang : _langChain[_langIdx];
+    r.interimResults = true; r.continuous = continuous;
+    return r;
+  }
+
+  // ── Caption animation (typing effect for call screens) ────────
+  function updateCaption(el, text) {
+    if (!el) return;
+    if (!text || !text.trim()) {
+      el.style.transition = "opacity 0.25s ease";
+      el.style.opacity = "0";
+      setTimeout(() => { if (el.style.opacity === "0") { el.innerHTML = ""; el.style.opacity = "1"; } }, 280);
+      return;
+    }
+    el.style.transition = "opacity 0.2s ease";
+    el.style.opacity = "0";
+    setTimeout(() => {
+      const words = text.trim().split(/\s+/).filter(Boolean);
+      el.innerHTML = words.map((w, i) =>
+        `<span class="cap-word" style="animation-delay:${i * 32}ms">${escapeHtml(w)} </span>`
+      ).join("");
+      el.style.opacity = "1";
+    }, 150);
+  }
+
+  $("#micBtn").onclick = () => {
+    if (!SR) { alert("আপনার ব্রাউজার ভয়েস ইনপুট সাপোর্ট করে না।"); return; }
+    if (recOn && recognizer) { recognizer.stop(); return; }
+    recognizer = makeRecognizer();
+    recOn = true;
+    $("#micBtn").classList.add("active");
+    let finalText = "";
+    recognizer.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += t; else interim += t;
+      }
+      composerInput.value = finalText || interim;
+    };
+    recognizer.onend = () => {
+      recOn = false; $("#micBtn").classList.remove("active");
+      if (composerInput.value.trim()) sendMessage();
+    };
+    recognizer.onerror = () => { recOn = false; $("#micBtn").classList.remove("active"); };
+    recognizer.start();
+  };
+
+  // ── Camera mode ───────────────────────────────────────────────────
+  let camStream = null, camFacing = "environment";
+  async function startCam(view, video, facing) {
+    try {
+      if (camStream) camStream.getTracks().forEach(t => t.stop());
+      camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false });
+      video.srcObject = camStream;
+      view.classList.add("is-open");
+      await video.play().catch(() => {});
+    } catch (e) { alert("ক্যামেরা চালু করা যাচ্ছে না: " + e.message); }
+  }
+  function stopCam() { if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; } }
+  function snapshot(video, canvas) {
+    canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 480;
+    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  }
+  $("#cameraBtn").onclick = () => startCam($("#cameraView"), $("#camVideo"), camFacing);
+  $("#closeCam").onclick  = () => { stopCam(); $("#cameraView").classList.remove("is-open"); };
+  $("#flipCam").onclick   = () => { camFacing = camFacing === "environment" ? "user" : "environment"; startCam($("#cameraView"), $("#camVideo"), camFacing); };
+
+  async function askAboutCamera(promptText) {
+    const cap = $("#camCaption");
+    cap.textContent = "ছবিটি বিশ্লেষণ করছি…";
+    const img = snapshot($("#camVideo"), $("#camCanvas"));
+    try {
+      const r = await fetch(api("/analyze"), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: promptText || "এই ছবিতে কী দেখা যাচ্ছে? দৃশ্যমান লেখা থাকলে পড়ে বাংলায় সংক্ষেপে বল।",
+          file: img, mime: "image/jpeg", userName: settings.userName
+        }),
+      });
+      const data = await r.json();
+      cap.textContent = data.reply || "ছবিটি বিশ্লেষণ করতে পারলাম না।";
+      speak(cap.textContent);
+    } catch {
+      cap.textContent = "ছবিটি বিশ্লেষণ করা যাচ্ছে না।";
+    }
+  }
+  $("#askCamBtn").onclick = () => askAboutCamera();
+  $("#camMicBtn").onclick = () => {
+    if (!SR) { askAboutCamera(); return; }
+    const r = makeRecognizer();
+    $("#camCaption").textContent = "শুনছি…";
+    let finalText = "";
+    r.onresult = (e) => { for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) finalText += e.results[i][0].transcript; $("#camCaption").textContent = finalText; };
+    r.onend = () => askAboutCamera(finalText.trim() || "এটা কী?");
+    r.start();
+  };
+
+  // ── Audio call ─────────────────────────────────────────────────────
+  let callOn = false, callRecognizer = null;
+  $("#audioCallBtn").onclick  = () => startAudioCall();
+  $("#endAudioCall").onclick  = () => endAudioCall();
+  $("#muteAudioCall").onclick = () => { if (callRecognizer) callRecognizer.stop(); };
+
+  // ── Call state → mic-ring + photo + name colour ──────────────────
+  function setCallState(state) {
+    // state: "listening" | "talking" | "thinking"
+    const ringCls = state === "talking" ? "speak" : state === "thinking" ? "think" : "listen";
+    ["micRing1","micRing2","micRing3"].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.classList.remove("listen","speak","think");
+      el.classList.add(ringCls);
+    });
+    const photo = document.getElementById("acPhotoCircle");
+    if (photo) { photo.classList.remove("speak","think"); if (ringCls !== "listen") photo.classList.add(ringCls); }
+    const name = document.getElementById("acBrandName");
+    if (name) { name.classList.remove("speak","think"); if (ringCls !== "listen") name.classList.add(ringCls); }
+  }
+
+  function setWave(state, id = "audioWave") {
+    // Wave element (video call uses vcAiWave)
+    const el = document.getElementById(id);
+    if (el) { el.classList.remove("idle","listening","talking"); el.classList.add(state); }
+    // Mic rings (audio call) — map wave states to ring states
+    const ringState = state === "talking" ? "talking" : state === "idle" ? "thinking" : "listening";
+    setCallState(ringState);
+  }
+
+  // ── User speech caption (what user says during call) ─────────────
+  let _userCapTimer = null;
+  function updateUserCaption(text, elId = "userCaption") {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    if (!text || !text.trim()) {
+      el.style.opacity = "0";
+      if (_userCapTimer) clearTimeout(_userCapTimer);
+      _userCapTimer = setTimeout(() => { if (el.style.opacity === "0") el.textContent = ""; }, 380);
+      return;
+    }
+    el.textContent = text.trim();
+    el.style.opacity = "1";
+    // Auto-fade 3 s after last update
+    if (_userCapTimer) clearTimeout(_userCapTimer);
+    _userCapTimer = setTimeout(() => updateUserCaption("", elId), 3000);
+  }
+
+  async function startAudioCall() {
+    if (!SR) { alert("এই ব্রাউজারে ভয়েস ইনপুট সাপোর্ট করে না। Chrome বা Edge ব্যবহার করুন।"); return; }
+    _ensureAudioCtx();
+    // Microphone permission check before opening call
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(t => t.stop()); // immediately release
+      } catch (e) {
+        if (e.name === "NotAllowedError" || e.name === "PermissionDeniedError") {
+          alert("মাইক্রোফোন অনুমতি দিন। Browser settings থেকে microphone permission দিন।");
+          return;
+        }
+        // If mic check fails for other reason, still try
+      }
+    }
+    callOn = true;
+    _langIdx = 0; // reset lang fallback for fresh call
+    $("#audioCallView").classList.add("is-open");
+    $("#audioCallStatus").textContent = "শুনছি…";
+    $("#audioCallCaption").innerHTML = "";
+    updateUserCaption("", "userCaption");
+    setWave("listening");
+    callLoop();
+  }
+  function endAudioCall() {
+    callOn = false;
+    if (callRecognizer) { try { callRecognizer.stop(); } catch {} }
+    _stopAll();
+    setWave("idle");
+    $("#audioCallView").classList.remove("is-open");
+    // Call history চ্যাটে দেখাও
+    const ac = getActive();
+    if (ac && ac.messages.length) {
+      welcomeEl.style.display = "none";
+      renderChat();
+    }
+  }
+  // ── Audio call loop — continuous=false, cleaner one-utterance-at-a-time design ──
+  let _callSeq = 0;
+  function callLoop() {
+    if (!callOn) return;
+    const seq = ++_callSeq;
+
+    setCallState("listening");
+    if ($("#audioCallStatus")) $("#audioCallStatus").textContent = "শুনছি…";
+
+    // continuous=false: browser naturally stops after end-of-speech, far more reliable
+    const rec = makeRecognizer(_langChain[_langIdx], false);
+    if (!rec) return; // SR not available (shouldn't reach — already checked in startAudioCall)
+    callRecognizer = rec;
+    let heard = "", interim = "", blocked = false;
+
+    rec.onresult = (e) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) heard += t; else interim += t;
+      }
+      updateUserCaption(heard || interim, "userCaption");
+      // Barge-in: if user speaks while AI is talking, stop AI immediately
+      if ((heard || interim).trim() && (currentAudio || currentUtter)) _stopAll();
+    };
+
+    rec.onend = async () => {
+      if (!callOn || _callSeq !== seq || blocked) return;
+      const said = heard.trim();
+      updateUserCaption("", "userCaption");
+
+      if (!said) {
+        // No speech detected — restart listening quietly
+        setTimeout(() => { if (callOn && _callSeq === seq) callLoop(); }, 300);
+        return;
+      }
+
+      // Speech detected → AI → speak. While speaking, keep a second
+      // recognition session alive so the user can interrupt naturally.
+      setCallState("thinking");
+      if ($("#audioCallStatus")) $("#audioCallStatus").textContent = "ভাবছি…";
+      let nextTurn = said;
+      while (nextTurn && callOn && _callSeq === seq) {
+        const reply = await callChat(nextTurn);
+        if (!callOn || _callSeq !== seq) return;
+        setCallState("talking");
+        if ($("#audioCallStatus")) $("#audioCallStatus").textContent = "বলছি…";
+        nextTurn = await interruptibleSpeakAndWait(
+          reply, $("#audioCallCaption"), $("#audioCallStatus"), _langChain[_langIdx]
+        );
+        if (nextTurn) {
+          setCallState("thinking");
+          if ($("#audioCallStatus")) $("#audioCallStatus").textContent = "আপনার কথা শুনছি…";
+        }
+      }
+      if (!callOn || _callSeq !== seq) return;
+
+      // Done speaking — restart listening
+      setCallState("listening");
+      if ($("#audioCallStatus")) $("#audioCallStatus").textContent = "শুনছি…";
+      setTimeout(() => { if (callOn && _callSeq === seq) callLoop(); }, 350);
+    };
+
+    rec.onerror = (e) => {
+      if (!callOn || _callSeq !== seq) return;
+      if (e.error === "no-speech") {
+        // Normal — user just didn't speak in time, restart
+        setTimeout(() => { if (callOn && _callSeq === seq) callLoop(); }, 300);
+      } else if (e.error === "language-not-supported" || e.error === "service-not-allowed") {
+        // Language fallback — try next lang in chain
+        if (_langIdx < _langChain.length - 1) {
+          _langIdx++;
+          if ($("#audioCallStatus")) $("#audioCallStatus").textContent = "ভাষা পরিবর্তন হচ্ছে…";
+        }
+        setTimeout(() => { if (callOn && _callSeq === seq) callLoop(); }, 500);
+      } else if (e.error === "not-allowed" || e.error === "audio-capture") {
+        // Microphone permission denied
+        blocked = true;
+        if ($("#audioCallStatus")) $("#audioCallStatus").textContent = "মাইক্রোফোন অনুমতি দিন";
+        setCallState("thinking");
+        // Don't restart — wait for user action
+      }
+    };
+
+    try { rec.start(); }
+    catch (startErr) {
+      console.warn("rec.start error:", startErr);
+      setTimeout(() => { if (callOn && _callSeq === seq) callLoop(); }, 600);
+    }
+  }
+  async function callChat(text) {
+    if (!getActive()) newChat();
+    const c = getActive();
+    c.messages.push({ role: "user", text }); c.updatedAt = Date.now(); persistChats();
+    try {
+      const r = await fetch(api("/chat"), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: c.messages.map(m => ({ role: m.role, text: m.text })), userName: settings.userName }),
+      });
+      const data = await r.json();
+      const reply = data.reply || "...";
+      c.messages.push({ role: "assistant", text: reply }); persistChats();
+      return reply;
+    } catch { return "দুঃখিত, যোগাযোগ করতে পারছি না।"; }
+  }
+
+  // ── Video call ─────────────────────────────────────────────────────
+  let vcStream = null, vcFacing = "user", vcOn = false, vcRecognizer = null;
+  $("#videoCallBtn").onclick   = () => startVideoCall();
+  $("#endVideoCall").onclick   = () => endVideoCall();
+  $("#flipVideoCall").onclick  = async () => { vcFacing = vcFacing === "user" ? "environment" : "user"; await openVcCam(); };
+  $("#muteVideoCall").onclick  = () => { if (vcRecognizer) vcRecognizer.stop(); };
+  // Video call-এ manual snapshot + voice input button
+  $("#askVideoBtn").onclick    = () => {
+    if (!vcOn) return;
+    if (!SR) {
+      askAboutVideoSnapshot("এই ছবিতে কী দেখা যাচ্ছে? দৃশ্যমান লেখা থাকলে পড়ে বাংলায় সংক্ষেপে বল।");
+      return;
+    }
+    // ভয়েস দিয়ে জিজ্ঞেস করো তারপর snapshot নাও
+    const r = makeRecognizer("bn-BD", false);
+    $("#videoCallStatus").textContent = "জিজ্ঞাসা করুন…";
+    let heard = "";
+    r.onresult = (e) => { for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) heard += e.results[i][0].transcript; };
+    r.onend = () => {
+      askAboutVideoSnapshot(heard.trim() || "এই ছবিতে কী দেখা যাচ্ছে?");
+    };
+    r.onerror = () => { $("#videoCallStatus").textContent = "কানেক্টেড"; };
+    r.start();
+  };
+
+  async function askAboutVideoSnapshot(promptText) {
+    if (!vcOn) return;
+    const img = snapshot($("#videoCallVideo"), $("#videoCallCanvas"));
+    $("#videoCallStatus").textContent = "ভাবছি…";
+    $("#videoCallCaption").textContent = "ছবিটি বিশ্লেষণ করছি…";
+    try {
+      const r = await fetch(api("/analyze"), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: promptText, file: img, mime: "image/jpeg", userName: settings.userName
+        }),
+      });
+      const data = await r.json();
+      if (!vcOn) return;
+      const reply = data.reply || "ছবিটি বিশ্লেষণ করতে পারলাম না।";
+      await speakAndWait(reply, $("#videoCallCaption"), $("#videoCallStatus"), _langChain[_langIdx]);
+      if (vcOn) $("#videoCallStatus").textContent = "কানেক্টেড";
+    } catch {
+      if (vcOn) $("#videoCallStatus").textContent = "ছবিটি বিশ্লেষণ করা যায়নি";
+    }
+  }
+
+  async function openVcCam() {
+    try {
+      if (vcStream) vcStream.getTracks().forEach(t => t.stop());
+      vcStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: vcFacing }, audio: false });
+      const vid = $("#videoCallVideo");
+      vid.srcObject = vcStream;
+      // srcObject সেট করার পর explicitly play() করতে হবে — autoplay policy
+      await vid.play().catch(() => {});
+    } catch (e) { alert("ক্যামেরা চালু করা যাচ্ছে না: " + e.message); }
+  }
+  async function startVideoCall() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert("এই ব্রাউজারে বা সংযোগে ক্যামেরা সাপোর্ট করে না। HTTPS এ অ্যাপ ব্যবহার করুন।");
+      return;
+    }
+    _ensureAudioCtx();
+    vcOn = true;
+    _langIdx = 0;
+    $("#videoCallView").classList.add("is-open");
+    $("#videoCallStatus").textContent = "ক্যামেরা চালু হচ্ছে…";
+    $("#videoCallCaption").textContent = "";
+    updateUserCaption("", "vcUserCaption");
+    await openVcCam();
+    if (SR) {
+      $("#videoCallStatus").textContent = "শুনছি…";
+      videoCallLoop();
+    } else {
+      $("#videoCallStatus").textContent = "ক্যামেরা চালু — নিচের বাটন দিয়ে প্রশ্ন করুন";
+    }
+  }
+  function endVideoCall() {
+    vcOn = false;
+    if (vcRecognizer) { try { vcRecognizer.stop(); } catch {} }
+    if (vcStream) { vcStream.getTracks().forEach(t => t.stop()); vcStream = null; }
+    _stopAll();
+    $("#videoCallView").classList.remove("is-open");
+    // Video call history চ্যাটে দেখাও
+    const vc = getActive();
+    if (vc && vc.messages.length) {
+      welcomeEl.style.display = "none";
+      renderChat();
+    }
+  }
+  // ── Video call loop — same continuous=false design as audio call ──
+  let _vcSeq = 0;
+  function videoCallLoop() {
+    if (!vcOn) return;
+    const seq = ++_vcSeq;
+
+    if ($("#videoCallStatus")) $("#videoCallStatus").textContent = "শুনছি…";
+
+    const rec = makeRecognizer(_langChain[_langIdx], false);
+    if (!rec) return;
+    vcRecognizer = rec;
+    let heard = "", interim = "", blocked = false;
+
+    rec.onresult = (e) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) heard += t; else interim += t;
+      }
+      updateUserCaption(heard || interim, "vcUserCaption");
+      if ((heard || interim).trim() && (currentAudio || currentUtter)) _stopAll();
+    };
+
+    rec.onend = async () => {
+      if (!vcOn || _vcSeq !== seq || blocked) return;
+      const said = heard.trim();
+      updateUserCaption("", "vcUserCaption");
+
+      if (!said) {
+        setTimeout(() => { if (vcOn && _vcSeq === seq) videoCallLoop(); }, 300);
+        return;
+      }
+
+      if ($("#videoCallStatus")) $("#videoCallStatus").textContent = "ভাবছি…";
+      try {
+        let nextTurn = said;
+        while (nextTurn && vcOn && _vcSeq === seq) {
+          const img = snapshot($("#videoCallVideo"), $("#videoCallCanvas"));
+          const r = await fetch(api("/analyze"), {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              prompt: nextTurn, file: img, mime: "image/jpeg", userName: settings.userName
+            }),
+          });
+          const data = await r.json();
+          const reply = data.reply || "ছবিটি বুঝতে পারলাম না।";
+          if (!vcOn || _vcSeq !== seq) return;
+          await interruptibleSpeakAndWait(
+            reply, $("#videoCallCaption"), $("#videoCallStatus"), _langChain[_langIdx]
+          ).then(interrupted => { nextTurn = interrupted; });
+          if (nextTurn && $("#videoCallStatus")) $("#videoCallStatus").textContent = "আপনার কথা শুনছি…";
+        }
+      } catch {
+        if ($("#videoCallCaption")) {
+          $("#videoCallCaption").textContent = "নেটওয়ার্ক সমস্যা";
+          setTimeout(() => { if ($("#videoCallCaption")) $("#videoCallCaption").textContent = ""; }, 3000);
+        }
+      }
+
+      if (!vcOn || _vcSeq !== seq) return;
+      if ($("#videoCallStatus")) $("#videoCallStatus").textContent = "কানেক্টেড";
+      setTimeout(() => { if (vcOn && _vcSeq === seq) videoCallLoop(); }, 350);
+    };
+
+    rec.onerror = (e) => {
+      if (!vcOn || _vcSeq !== seq) return;
+      if (e.error === "no-speech") {
+        setTimeout(() => { if (vcOn && _vcSeq === seq) videoCallLoop(); }, 300);
+      } else if (e.error === "language-not-supported" || e.error === "service-not-allowed") {
+        if (_langIdx < _langChain.length - 1) _langIdx++;
+        setTimeout(() => { if (vcOn && _vcSeq === seq) videoCallLoop(); }, 500);
+      } else if (e.error === "not-allowed" || e.error === "audio-capture") {
+        blocked = true;
+        if ($("#videoCallStatus")) $("#videoCallStatus").textContent = "মাইক্রোফোন অনুমতি দিন";
+      }
+    };
+
+    try { rec.start(); }
+    catch (startErr) {
+      console.warn("vcRec.start error:", startErr);
+      setTimeout(() => { if (vcOn && _vcSeq === seq) videoCallLoop(); }, 600);
+    }
+  }
+
+  // ── Welcome message (one-time) ────────────────────────────────────
+  function showWelcomeIfFirst() {
+    if (localStorage.getItem(LS_WELCOMED)) return;
+    localStorage.setItem(LS_WELCOMED, "1");
+    // প্রথমবার শুধু হোমপেজ দেখাও — chat-এ message যোগ করো না
+    // #welcome div স্বয়ংক্রিয়ভাবে দেখা যাবে (কোনো message নেই বলে)
+    setTimeout(() => speak("আস্সালামু ওয়ালাইকুম। পারিসা মেমোরি পোর্টালে আপনাকে স্বাগতম।"), 1800);
+  }
+
+  // ── Exact Chat History Table Renderer ─────────────────────────────
+  // These cells are populated from the server's database rows, not from
+  // the language model's markdown, so message text cannot be translated
+  // or truncated by the model.
+  function appendChatHistory(messages, screenshots = [], shouldScroll = true) {
+    if (!messages || !messages.length) return;
+    const wrap = document.createElement("div");
+    wrap.className = "msg-row assistant";
+    const outer = document.createElement("div");
+    outer.className = "msg assistant chat-history-block";
+    const first = messages[0];
+    const hdr = document.createElement("div");
+    hdr.className = "ch-header";
+    hdr.textContent = `${first.platform || "Chat"} — ${first.ts || ""} — মোট ${messages.length}টি আসল মেসেজ`;
+    outer.appendChild(hdr);
+
+    const tableWrap = document.createElement("div");
+    tableWrap.className = "tbl-wrap exact-chat-table-wrap";
+    const table = document.createElement("table");
+    table.className = "exact-chat-table";
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    ["প্রেরক", "মেসেজ", "বিশ্লেষণ", "প্ল্যাটফর্ম", "তারিখ ও সময়"].forEach(label => {
+      const th = document.createElement("th");
+      th.textContent = label;
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    for (const m of messages) {
+      const row = document.createElement("tr");
+      row.className = "exact-chat-row";
+      const values = [m.snd || "", m.txt || "", m.analysis || "বিশ্লেষণ পাওয়া যায়নি।", m.platform || "", m.ts || ""];
+      for (const value of values) {
+        const td = document.createElement("td");
+        td.textContent = value;
+        row.appendChild(td);
+      }
+      tbody.appendChild(row);
+    }
+    table.appendChild(tbody);
+    tableWrap.appendChild(table);
+    outer.appendChild(tableWrap);
+
+    if (screenshots.length) {
+      const proofTitle = document.createElement("div");
+      proofTitle.className = "history-proof-title";
+      proofTitle.textContent = "এই তারিখের প্রাসঙ্গিক screenshot";
+      outer.appendChild(proofTitle);
+      const proof = document.createElement("div");
+      proof.className = "history-screenshots";
+      for (const shot of screenshots) {
+        const card = document.createElement("figure");
+        card.className = "history-screenshot";
+        const img = document.createElement("img");
+        img.src = `${api("/image/")}${encodeURIComponent(shot.id)}`;
+        img.alt = shot.name || "সcreenshot";
+        img.loading = "lazy";
+        const caption = document.createElement("figcaption");
+        caption.textContent = `${shot.name || "Screenshot"}${shot.date ? ` — ${shot.date}` : ""}`;
+        card.append(img, caption);
+        proof.appendChild(card);
+      }
+      outer.appendChild(proof);
+    }
+
+    wrap.appendChild(outer);
+    messagesEl.appendChild(wrap);
+    if (shouldScroll) scrollToBottom();
+  }
+
+  // ── PWA service worker ────────────────────────────────────────────
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  }
+
+  // ── Init — force hide all fullscreen views (PWA cache safety) ────
+  ["audioCallView","videoCallView","cameraView"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.classList.remove("is-open"); el.hidden = false; }
+  });
+  callOn = false; vcOn = false;
+
+  if (Object.keys(chats).length === 0) newChat();
+  else { renderChat(); renderSidebar(); }
+  // সাইডবার সবসময় শুরু থেকে পুরনো চ্যাট দেখাবে — extra call ensures DOM ready
+  setTimeout(() => renderSidebar(), 0);
+  showWelcomeIfFirst();
+})();
