@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.local
+.env.*.local
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db
+dist/
+.cache/
+# বড় asset ফাইল (26MB+) GitHub-এ যাবে না
+attached_assets/
