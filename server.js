@@ -18,7 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 
 // ভার্সন ফরম্যাট: V-<n> — প্রতিটি নতুন আপডেটে n ঠিক ১ করে বাড়বে (package.json-এর semver থেকে স্বাধীন)
-const APP_VERSION = "V-34";
+const APP_VERSION = "V-35";
 
 const app = express();
 app.use(cors());
@@ -84,6 +84,17 @@ function makePool(keys, name) {
 const geminiPool   = makePool(GEMINI_KEYS,    "gemini");
 const groqPool     = makePool(GROQ_KEYS,      "groq");
 const orPool       = makePool(OPENROUTER_KEYS,"openrouter");
+// V-35: মডেল নাম এক জায়গায় — পুরোনো মডেল বন্ধ হলে Render env দিয়ে বদলানো যাবে
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash";
+const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
+const GROQ_FALLBACK_MODEL = process.env.GROQ_FALLBACK_MODEL || "qwen/qwen3.6-27b";
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "openrouter/auto";
+const lastProviderError = {};
+function noteProviderError(p, msg) {
+  lastProviderError[p] = { at: new Date().toISOString(), msg: String(msg).slice(0, 300) };
+  console.warn(p + ":", String(msg).slice(0, 300));
+}
 const deepseekPool = makePool(DEEPSEEK_KEYS,  "deepseek");
 
 console.log(`Keys — gemini:${geminiPool.size} groq:${groqPool.size} openrouter:${orPool.size} deepseek:${deepseekPool.size}`);
@@ -1299,19 +1310,20 @@ function geminiToOpenAIMessages(systemPrompt, contents) {
   return msgs;
 }
 
-async function tryGemini(body) {
+async function tryGemini(body, model = GEMINI_MODEL) {
   if (!geminiPool.size) return null;
   try {
     const r = await callWithFailover(geminiPool, async (key) =>
-      fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+      fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(25000) })
     );
     const data = await r.json();
+    if (data?.error) { noteProviderError("gemini:" + model, data.error.message); return null; }
     return data?.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join("\n") || null;
-  } catch (e) { console.warn("gemini:", e.message); return null; }
+  } catch (e) { noteProviderError("gemini:" + model, e.message); return null; }
 }
 
-async function tryGroq(sys, contents) {
+async function tryGroq(sys, contents, model = GROQ_MODEL) {
   if (!groqPool.size) return null;
   try {
     const messages = geminiToOpenAIMessages(sys, contents);
@@ -1319,7 +1331,7 @@ async function tryGroq(sys, contents) {
       fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        signal: AbortSignal.timeout(25000), body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages, temperature: 0.15 }),
+        signal: AbortSignal.timeout(25000), body: JSON.stringify({ model, messages, temperature: 0.15 }),
       })
     );
     const data = await r.json();
@@ -1351,7 +1363,7 @@ async function tryOpenRouter(sys, contents) {
       fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        signal: AbortSignal.timeout(25000), body: JSON.stringify({ model: "google/gemini-2.0-flash-exp:free", messages, temperature: 0.15 }),
+        signal: AbortSignal.timeout(25000), body: JSON.stringify({ model: OPENROUTER_MODEL, messages, temperature: 0.15 }),
       })
     );
     const data = await r.json();
@@ -1362,10 +1374,10 @@ async function tryOpenRouter(sys, contents) {
 async function chatWithFallback(body, hasImage) {
   const sys = body.systemInstruction.parts[0].text;
   const contents = body.contents;
-  const r1 = await tryGemini(body);
+  const r1 = (await tryGemini(body, GEMINI_MODEL)) || (await tryGemini(body, GEMINI_FALLBACK_MODEL));
   if (r1) return { reply: r1, provider: "gemini" };
   if (hasImage) return { reply: null, provider: null };
-  const r2 = await tryGroq(sys, contents);
+  const r2 = (await tryGroq(sys, contents, GROQ_MODEL)) || (await tryGroq(sys, contents, GROQ_FALLBACK_MODEL));
   if (r2) return { reply: r2, provider: "groq" };
   const r3 = await tryDeepseek(sys, contents);
   if (r3) return { reply: r3, provider: "deepseek" };
@@ -1535,6 +1547,8 @@ function mount(prefix) {
       historySource: HISTORY_SOURCE,
       historyChars: RUBEL_HISTORY.length,
       keys: { gemini: geminiPool.size, groq: groqPool.size, openrouter: orPool.size, deepseek: deepseekPool.size },
+      models: { gemini: GEMINI_MODEL, geminiFallback: GEMINI_FALLBACK_MODEL, groq: GROQ_MODEL, groqFallback: GROQ_FALLBACK_MODEL, openrouter: OPENROUTER_MODEL },
+      providerErrors: lastProviderError,
     })
   );
 
