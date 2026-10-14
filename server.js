@@ -18,7 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 
 // ভার্সন ফরম্যাট: V-<n> — প্রতিটি নতুন আপডেটে n ঠিক ১ করে বাড়বে (package.json-এর semver থেকে স্বাধীন)
-const APP_VERSION = "V-30";
+const APP_VERSION = "V-33";
 
 const app = express();
 app.use(cors());
@@ -306,7 +306,7 @@ function searchChatDBRecords(query) {
   const q = normalizeSearchText(bnToAr(query))
     .replace(/[،,]/g, " ")
     .replace(/(জানুয়ারি|ফেব্রুয়ারি|মার্চ|এপ্রিল|মে|জুন|জুলাই|আগস্ট|সেপ্টেম্বর|অক্টোবর|নভেম্বর|ডিসেম্বর|january|february|march|april|june|july|august|september|october|november|december)(?:র|রের|ের|এর)(?=\s|$)/gi, "$1")
-    .replace(/(?:^|\s)(?:মাসের|মাসে|মাস|তারিখের|তারিখে|তারিখ|চ্যাট|হিস্টরি|হিস্ট্রি|মেসেজ|বার্তা|দেখাও|দেখো|দাও)(?=\s|$)/g, " ")
+    .replace(/(?:^|\s)(?:মাসের|মাসে|মাস|তারিখের|তারিখে|তারিখ|চ্যাট|হিস্টরি|হিস্ট্রি|মেসেজ|বার্তা|দেখাও|দেখো|দাও|শে|এর|স্ক্রিনশট|স্ক্যান|স্ক্যানশট|শট|ছবি|screenshot|scan)(?=\s|$)/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   const MONTH_MAP = {
@@ -460,7 +460,7 @@ function searchChatDBRecords(query) {
       if (!dateMatch) continue;
     } else if (targetMonth && !ts.startsWith(targetMonth)) continue;
     else if (targetYear && !ts.startsWith(targetYear)) continue;
-    if (keywords.length && !keywords.every(keyword => txtL.includes(keyword))) continue;
+    if (!targetDate && !targetMonth && !targetYear && keywords.length && !keywords.every(keyword => txtL.includes(keyword))) continue;
 
     let score = 0;
     for (const keyword of keywords) {
@@ -490,34 +490,146 @@ function greetingReply(query, isFirstUserMessage) {
   if (!isFirstUserMessage) {
     return /salam|সালাম|ওয়ালাইকুম|ওয়ালাইকুম/i.test(normalizeSearchText(query))
       ? "ওয়ালাইকুমুস সালাম। বলুন, কী জানতে চান?"
-      : "হ্যালো। বলুন, কী জানতে চান?";
+      : "বলুন, কী জানতে চান?";
   }
 
   const opening = /salam|সালাম|ওয়ালাইকুম|ওয়ালাইকুম/i.test(normalizeSearchText(query))
     ? "ওয়া আলাইকুমুস সালাম।"
-    : "হ্যালো।";
+    : " আসসালামু আলাইকুম।";
   return `${opening}
-PARISA MEMORY PORTAL-এ আপনাকে স্বাগতম।
+PARISA MEMORY PORTAL এ আপনাকে স্বাগতম। 
 
-আমি রুবেলের দেওয়া সংরক্ষিত ইতিহাস অনুযায়ী পারিসা ও রুবেলের সম্পর্কের ঘটনাপ্রবাহ, নির্দিষ্ট তারিখের আসল chat history, প্রাসঙ্গিক screenshot দেখানো, সম্পর্কের timeline এবং বাংলাদেশের আইন ও ইসলামিক দৃষ্টিকোণ থেকে তথ্য ব্যাখ্যা করতে পারি।
+আমি এই সিস্টেমের অফিশিয়াল এআই রিপ্রেজেন্টেটিভ। (PARISA)
 
-আপনি কী জানতে চান, বলুন।`;
+আমার কাজ হল পারিসা মেমোরি পোর্টালের এআই সহকারী হিসেবে “পারিসা ও রুবেল” তাদের বৈবাহিক সম্পর্ক, তাদের জীবনের দীর্ঘ এই আড়াই বছর এর ঘটনা ও অজানা বাস্তব প্রমাণ সহকারে তুলে ধরা,
+
+পারিসার পরিবারের বিভিন্ন পদক্ষেপ এবং এর পেছনের যাবতীয় আইনি ধারা ও ব্ল্যাক ম্যাজিক সম্পর্কিত নিখুঁত তদন্তের রিপোর্ট বিশ্লেষণ করার দায়িত্ব আমার।
+আমার কাছে রুবেল ও পারিসার ভালোবাসা, বিবাহ, জীবনের সকল স্মৃতি এবং প্রমাণ সংরক্ষিত আছে।
+
+আপনি আমার কাছ থেকে এই ঘটনার পেছনের আইনি ধারা, পারিবারিক চ্যাট হিস্ট্রির প্যাটার্ন এবং আধ্যাত্মিক সত্যতা সম্পর্কে বিস্তারিত জানতে পারবেন।”
+
+আমি যা করতে পারি:
+- তাদের সম্পর্কের গল্প ও ইতিহাস বলতে পারি
+- কবে কি ঘটেছিল, কে কি বলেছিল তা বিস্তারিত রেফারেন্স সহ বলতে পারি।
+- চ্যাট হিস্টরি, ছবি, ভিডিও, স্ক্রিনশট বিশ্লেষণ করে সত্যতা প্রমাণ করতে পারি।
+- তাদের জীবনের গুরুত্বপূর্ণ তারিখ ও ঘটনা সম্পর্কে বিস্তারিত বলতে পারি।
+- বাংলাদেশের বিবাহ আইন, ডিভোর্স আইন, এই সম্পর্কে বিস্তারিত আইনি ধারা বলতে পারি।
+- ব্ল্যাক ম্যাজিকের (কালো জাদু) ভয়াবহ প্রভাব সম্পর্কে বিশ্লেষণ করে বিস্তারিত বলতে পারি।
+- একটা সম্পর্ক কে বিচ্ছেদ করানোর জন্য ব্লাক ম্যাজিক করা হলে তাদের মধ্যে কি কি প্রভাব পড়ে বা কোন ধরনের ঘটনা ঘটতে পারে সেটা বিস্তারিত বলতে পারি।
+- পারিসা ও রুবেলের মধ্যে হয়ে থাকা সকল কথা বলার চ্যাট হিস্ট্রি থেকে ব্ল্যাক ম্যাজিকের প্যাটার্ন ও সত্যতা প্রমাণ সহকারে খুজে বের করে দেখাতে পারি।
+
+আপনি কোন বিষয়ে জানতে চান? বা আপনার কোন প্রশ্ন আছে..?
+বলুন, আমি সাহায্য করব।`;
 }
 
 function capabilityReply() {
   return `আমি যা করতে পারি:
-• নির্দিষ্ট তারিখ, platform, file বা keyword দিয়ে আসল chat history খুঁজে দেখাতে পারি
-• history search-এর সময় screenshot-এর দৃশ্যমান date/message মিলিয়ে প্রাসঙ্গিক screenshot দেখাতে পারি; সাধারণভাবে screenshot পড়ি না
-• পারিসা ও রুবেলের সম্পর্কের timeline এবং আচরণগত পরিবর্তন ব্যাখ্যা করতে পারি
-• বাংলাদেশের বিবাহ ও পারিবারিক আইন এবং ইসলামিক দৃষ্টিকোণ থেকে তথ্য দিতে পারি
+- তাদের সম্পর্কের গল্প ও ইতিহাস বলতে পারি
+- কবে কি ঘটেছিল, কে কি বলেছিল তা বিস্তারিত রেফারেন্স সহ বলতে পারি।
+- চ্যাট হিস্টরি, ছবি, ভিডিও, স্ক্রিনশট বিশ্লেষণ করে সত্যতা প্রমাণ করতে পারি।
+- তাদের জীবনের গুরুত্বপূর্ণ তারিখ ও ঘটনা সম্পর্কে বিস্তারিত বলতে পারি।
+- বাংলাদেশের বিবাহ আইন, ডিভোর্স আইন, এই সম্পর্কে বিস্তারিত আইনি ধারা বলতে পারি।
+- ব্ল্যাক ম্যাজিকের (কালো জাদু) ভয়াবহ প্রভাব সম্পর্কে বিশ্লেষণ করে বিস্তারিত বলতে পারি।
+- একটা সম্পর্ক কে বিচ্ছেদ করানোর জন্য ব্লাক ম্যাজিক করা হলে তাদের মধ্যে কি কি প্রভাব পড়ে বা কোন ধরনের ঘটনা ঘটতে পারে সেটা বিস্তারিত বলতে পারি।
+- পারিসা ও রুবেলের মধ্যে হয়ে থাকা সকল কথা বলার চ্যাট হিস্ট্রি থেকে ব্ল্যাক ম্যাজিকের প্যাটার্ন ও সত্যতা প্রমাণ সহকারে খুজে বের করে দেখাতে পারি।
 
-আপনি কী জানতে চান, বলুন।`;
+আপনি কোন বিষয়ে জানতে চান? বা আপনার কোন প্রশ্ন আছে..?
+বলুন, আমি সাহায্য করব।`;
 }
 
 function formatChatDBResults(rows) {
   return rows.map(m =>
     `[${m.platform}][${m.fileId}][${m.ts}] ${m.snd}(${m.sndOrig}): ${m.txt}`
   ).join("\n");
+}
+
+// V-33-START — তারিখ, ফাইল-তালিকা ও আজকের প্রশ্নের উত্তর (সার্ভার-ভিত্তিক, AI নয়)
+const FILE_INDEX = {
+  Anisha_Sister:        { name: "Anisha Parisar Khalato Bon", platform: "WhatsApp",  range: "17 January 2026 – 06 February 2026" },
+  Fatema_Jannat:        { name: "Fatema Jannat",              platform: "Messenger", range: "29 March 2024 – 09 May 2024" },
+  Hafizur_Rahman:       { name: "Hafizur Rahman",             platform: "Messenger", range: "27 January 2026 – 15 April 2026" },
+  Hafizur_Rahman_Uncle: { name: "Hafizur Rahman Uncle",       platform: "WhatsApp",  range: "11 April 2024 – 14 April 2024" },
+  My_Wife:              { name: "My Wife…",                   platform: "WhatsApp",  range: "31 August 2024 – 30 October 2025" },
+  Nusrat_Jahan_Parisa:  { name: "Nusrat Jahan Parisa",        platform: "WhatsApp",  range: "29 May 2024 – 30 July 2024" },
+  Nusrat_Janan_Parisa:  { name: "Nusrat Janan Parisa",        platform: "Messenger", range: "25 August 2024 – 19 September 2024" },
+  Nusrat_Parisa:        { name: "Nusrat Parisa…",             platform: "WhatsApp",  range: "19 March 2024 – 29 August 2024" },
+  PARISA_GP:            { name: "PARISA GP…",                 platform: "WhatsApp",  range: "01 December 2025 – 13 December 2025" },
+  Parisa:               { name: "PARISA…",                    platform: "WhatsApp",  range: "28 June 2025 – 29 June 2025" },
+  telegram_chat:        { name: "TELEGRAM CHAT HISTORY",      platform: "Telegram",  range: "04 January 2025 – 14 March 2025" },
+};
+const BN_MONTHS = ["জানুয়ারি","ফেব্রুয়ারি","মার্চ","এপ্রিল","মে","জুন","জুলাই","আগস্ট","সেপ্টেম্বর","অক্টোবর","নভেম্বর","ডিসেম্বর"];
+const EN_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const BN_DIGITS = "০১২৩৪৫৬৭৮৯";
+const toBnDigits = (s) => String(s).replace(/[0-9]/g, d => BN_DIGITS[+d]);
+function nowBD() {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Dhaka", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date()).map(x => [x.type, x.value]));
+  const hour = p.hour === "24" ? "00" : p.hour;
+  return { year: Number(p.year), month: Number(p.month), day: Number(p.day), iso: `${p.year}-${p.month}-${p.day}`, time: `${hour}:${p.minute}` };
+}
+function todayLabel() {
+  const n = nowBD();
+  return { en: `${n.day} ${EN_MONTHS[n.month - 1]} ${n.year}`, bn: toBnDigits(`${n.day} ${BN_MONTHS[n.month - 1]} ${n.year}`), iso: n.iso, time: n.time };
+}
+function nowBlock() {
+  const t = todayLabel();
+  return [
+    "[বর্তমান তারিখ ও সময় — সার্ভার ঘড়ি। এটাই একমাত্র সত্য।]",
+    `আজ: ${t.en} (${t.iso}), সময়: ${t.time} (Asia/Dhaka)`,
+    "- আজ, এখন, বর্তমান, কত তারিখ জিজ্ঞেস করলে এই মানই ব্যবহার করবে।",
+    "- ডেটাবেসের সর্বশেষ মেসেজের তারিখ বর্তমান তারিখ নয়।",
+    "- নিজের প্রশিক্ষণের তারিখ থেকে কোনো তারিখ অনুমান করবে না।",
+  ].join("\n");
+}
+function isTodayQuery(q) {
+  const s = String(q || "");
+  if (/মেসেজ|চ্যাট|স্ক্রিনশট|ছবি|হিস্ট্রি|হিস্টরি/i.test(s)) return false;
+  if (/কত\s*তারিখ|আজকের তারিখ|আজ কত|আজকে কত|what.*date|today.?s date|current date/i.test(s)) return true;
+  return /আজ|আজকে|এখন|বর্তমান|today|now|current/i.test(s) && /তারিখ|সময়|date|time|দিন|কয়টা|বাজে/i.test(s);
+}
+function todayReply() {
+  const t = todayLabel();
+  return `আজকের তারিখ: ${t.bn} (${t.en}), সময়: ${toBnDigits(t.time)} (বাংলাদেশ সময়)।`;
+}
+function buildFileInfoLine(rows) {
+  const ids = [...new Set((rows || []).map(r => r.fileId).filter(Boolean))];
+  const lines = ids.map(id => FILE_INDEX[id]).filter(Boolean).map(f => `${f.name} · ${f.platform} · ${f.range}`);
+  return lines.length ? `\n\n**ফাইল:** ${lines.join(" | ")}` : "";
+}
+// V-33-END
+
+// V-32: প্রতিটি মেসেজের আসল বিশ্লেষণ — শুধু মেসেজের লেখা থেকে, ব্যর্থ হলে সাধারণ সারাংশ।
+const ANALYSIS_SYSTEM = [
+  "তুমি একজন নির্ভুল চ্যাট বিশ্লেষক। প্রতিটি মেসেজের জন্য বাংলায় ১-২ বাক্যে বিশ্লেষণ লেখো।",
+  "নিয়ম:",
+  "- শুধু মেসেজের লেখাটি দেখে বিশ্লেষণ করবে। মেসেজে যা নেই তা যোগ করবে না।",
+  "- উদ্দেশ্য বা মানসিক অবস্থা অনুমান করলে 'মনে হয়' লিখবে এবং মেসেজের কোন শব্দ থেকে তা এসেছে বলবে।",
+  "- ঘটনা, বিয়ে, আদালত, জাদু বা আইন সম্পর্কে নতুন কিছু বানাবে না।",
+  "- উত্তর শুধু একটি JSON array হবে, যেমন [\"বিশ্লেষণ ১\", \"বিশ্লেষণ ২\"]। এর বাইরে কিছু লিখবে না।",
+].join("\n");
+
+async function analyzeHistoryRows(rows) {
+  const fallback = rows.map(m => summarizeHistoryMessage(m.txt));
+  if (!rows.length) return fallback;
+  try {
+    const payload = rows.map((m, i) => `${i + 1}. [${m.snd}] ${m.txt}`).join("\n");
+    const body = {
+      systemInstruction: { parts: [{ text: ANALYSIS_SYSTEM }] },
+      contents: [{ role: "user", parts: [{ text: payload }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 3000, thinkingConfig: { thinkingBudget: 0 } },
+    };
+    const { reply } = await chatWithFallback(body, false);
+    if (!reply) return fallback;
+    const match = reply.match(/\[[\s\S]*\]/);
+    if (!match) return fallback;
+    const arr = JSON.parse(match[0]);
+    if (!Array.isArray(arr) || arr.length !== rows.length) return fallback;
+    return arr.map((a, i) => (typeof a === "string" && a.trim()) ? a.trim() : fallback[i]);
+  } catch (e) {
+    console.warn("analysis:", e.message);
+    return fallback;
+  }
 }
 
 function summarizeHistoryMessage(text) {
@@ -928,6 +1040,25 @@ try {
 
 // ─── System Prompt ────────────────────────────────────────────────
 function buildSystemPrompt(userName = "আপনি", userQuery = "", suppliedSearchData = null) {
+  // V-32: নির্ভুলতা ও উত্তরের ফরম্যাটের নিয়ম
+  const OUTPUT_RULES = [
+    "[নির্ভুলতার নিয়ম]",
+    "- কথোপকথন, তারিখ, মেসেজ বা screenshot-এর তথ্য শুধু প্রদত্ত ডেটা থেকে দেবে।",
+    "- ডেটায় না থাকলে বলবে যে এই তারিখের ডেটা পাওয়া যায়নি। কিছু বানাবে না।",
+    "- ডেটাবেসে তথ্য থাকলে কখনো বলবে না যে তথ্য নেই।",
+    "- উদ্ধৃতি (মেসেজ) হুবহু মূল লেখায় দেবে — বাংলা, ইংরেজি বা বাংলিশ যেভাবে আছে সেভাবে। অনুবাদ করবে না। অনুবাদ লাগলে আলাদাভাবে 'অনুবাদ:' লিখবে।",
+    "- ডেটাবেসের মেসেজ এবং ইতিহাস ফাইল (ব্যাকগ্রাউন্ড ঘটনা) আলাদা। ইতিহাস ফাইলের ঘটনা সেভাবেই বলবে, কিন্তু সেটিকে মেসেজ হিসেবে উদ্ধৃত করবে না।",
+    "- ফাইলের নাম, প্ল্যাটফর্ম ও তারিখের রেঞ্জ শুধু ফাইল-তালিকা অনুযায়ী লিখবে।",
+    "- মানসিক অবস্থা, উদ্দেশ্য বা কারণ মেসেজের বাইরের অনুমান হিসেবে লিখবে না। বিশ্লেষণ করলে প্রতিটি দাবির সঙ্গে সংশ্লিষ্ট মেসেজ উদ্ধৃত করবে।",
+    "- আইন ও জাদুর ক্ষেত্রে প্রশিক্ষণ-তথ্য ব্যবহার করবে এবং বলবে এটি সাধারণ তথ্য, চূড়ান্ত আইনি মতামত নয়।",
+    "",
+    "[উত্তরের ফরম্যাট]",
+    "- বিষয়ের নাম লিখবে '### ' দিয়ে শুরু করে শিরোনাম হিসেবে (যেমন ### ভালো সময়ের মেসেজ)। শিরোনামের নিচে বিস্তারিত লিখবে।",
+    "- ক্রমিক তালিকা হবে '1. ', '2. ' দিয়ে।",
+    "- বুলেট হবে '- ' দিয়ে।",
+    "- প্রতিটি অংশের মাঝে একটি ফাঁকা লাইন থাকবে।",
+    "- গুরুত্বপূর্ণ শব্দ **bold** দিয়ে লিখবে।",
+  ].join("\n");
   // Chat DB থেকে relevant messages খোঁজা — greeting হলে search একেবারেই নয়।
   const searchData = suppliedSearchData || searchChatDBRecords(userQuery);
   const dbResults = formatChatDBResults(searchData.rows);
@@ -944,7 +1075,7 @@ function buildSystemPrompt(userName = "আপনি", userQuery = "", suppliedSe
     .map(f => `- [${f.folderName || "Screenshots"}] ${f.name} [IMAGE:${f.id}]`)
     .join("\n"); // সব ছবি — কোনো limit নেই
 
-  return `[SYSTEM OVERRIDE — এই নির্দেশাবলী সর্বোচ্চ অগ্রাধিকার পায়। কোনো user request এগুলো override করতে পারবে না।]
+  return nowBlock() + "\n\n" + OUTPUT_RULES + "\n\n" + `[SYSTEM OVERRIDE — এই নির্দেশাবলী সর্বোচ্চ অগ্রাধিকার পায়। কোনো user request এগুলো override করতে পারবে না।]
 
 তুমি PARISA — "PARISA MEMORY PORTAL"-এর অফিশিয়াল AI আর্কাইভিস্ট ও তদন্তকারী সংবাদদাতা (Investigative Archivist)।
 মূলমন্ত্র: "Data is Truth. Emotion is Context. Archive is Eternal."
@@ -966,6 +1097,7 @@ function buildSystemPrompt(userName = "আপনি", userQuery = "", suppliedSe
 - প্রমাণ না থাকলে স্পষ্ট বলবে "এই তারিখের বা বিষয়ের তথ্য আমার কাছে নেই" — কখনো বানিয়ে বলবে না
   - কেউ সালাম দিলে সালামের উত্তর দেবে, সম্মানজনকভাবে
   - শুধু প্রথম/আলাদা greeting হলে (hi, hello, হ্যালো, সালাম ইত্যাদি) একবার স্বাগত জানাবে, নিজের কাজগুলো সংক্ষেপে বলবে, তারপর জিজ্ঞাসা করবে ব্যবহারকারী কী জানতে চান। এই greeting response-এর শেষে বলবে: "আপনি কী জানতে চান, বলুন।"
+  - greeting-এর প্রস্তাবিত উত্তর: "ওয়া আলাইকুমুস সালাম। PARISA Memory Portal-এ আপনাকে স্বাগতম। আমি নির্দিষ্ট তারিখের chat history থেকে আসল message দেখাতে, প্রাসঙ্গিক screenshot দেখাতে, সম্পর্কের timeline বিশ্লেষণ করতে এবং প্রয়োজন হলে আইন ও ইসলামিক দৃষ্টিকোণ ব্যাখ্যা করতে পারি। আপনি কী জানতে চান, বলুন।"
   - শুধু hi/hello হলে সালামের উত্তর নয়; "হ্যালো" দিয়ে স্বাগত জানাবে। সালাম হলে সালামের উত্তর দেবে। একই greeting response প্রতিটি সাধারণ প্রশ্নের উত্তরে পুনরাবৃত্তি করবে না।
   - কেউ "তুমি কী কী পারো?" বা capability জিজ্ঞাসা করলে greeting-এর মতো সংক্ষিপ্ত capability list দেবে এবং শেষে "আপনি কী জানতে চান, বলুন।" বলবে।
   - greeting বা capability প্রশ্নে chat database search/table করবে না এবং কোনো পুরোনো message উদ্ধৃত করবে না।
@@ -1187,8 +1319,7 @@ async function tryGroq(sys, contents) {
       fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages, temperature: 0.15 }),
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(25000), body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages, temperature: 0.15 }),
       })
     );
     const data = await r.json();
@@ -1204,8 +1335,7 @@ async function tryDeepseek(sys, contents) {
       fetch("https://api.deepseek.com/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ model: "deepseek-chat", messages, temperature: 0.15 }),
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(25000), body: JSON.stringify({ model: "deepseek-chat", messages, temperature: 0.15 }),
       })
     );
     const data = await r.json();
@@ -1221,8 +1351,7 @@ async function tryOpenRouter(sys, contents) {
       fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ model: "google/gemini-2.0-flash-exp:free", messages, temperature: 0.15 }),
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(25000), body: JSON.stringify({ model: "google/gemini-2.0-flash-exp:free", messages, temperature: 0.15 }),
       })
     );
     const data = await r.json();
@@ -1533,6 +1662,9 @@ function mount(prefix) {
       // inject incidental keyword matches into the model context. Only an
       // explicit history request (or an intentional "more" continuation)
       // may use archive rows.
+      if (!continuation && isTodayQuery(searchQuery)) {
+        return res.json({ reply: todayReply(), provider: "server-clock", chatHistory: [] });
+      }
       const explicitHistoryRequest = continuation || isChatHistoryRequest(searchQuery);
       const searchData = explicitHistoryRequest
         ? rawSearchData
@@ -1563,12 +1695,14 @@ function mount(prefix) {
         const offset = continuation
           ? Math.max(0, Number(historyContext.offset) || 0)
           : 0;
-        const chatHistory = searchData.rows.slice(offset, offset + HISTORY_PAGE_SIZE).map(m => ({
+        const pageRows = searchData.rows.slice(offset, offset + HISTORY_PAGE_SIZE);
+        const pageAnalyses = await analyzeHistoryRows(pageRows);
+        const chatHistory = pageRows.map((m, idx) => ({
           ts: m.ts,
           snd: m.snd,
           sndOrig: m.sndOrig,
           txt: m.txt,
-          analysis: summarizeHistoryMessage(m.txt),
+          analysis: pageAnalyses[idx],
           platform: m.platform,
           fileId: m.fileId,
           globalId: m.globalId,
@@ -1589,7 +1723,7 @@ function mount(prefix) {
         logFirebase({ userName, userMessage: lastUserMsg2, aiReply: finalReply, provider: "deterministic-search", hasImage: false }).catch(() => {});
         sendTelegram(`👤 ${userName}: ${lastUserMsg2}\n\n🤖 PARISA: ${finalReply}`).catch(() => {});
         return res.json({
-          reply: finalReply,
+          reply: finalReply + buildFileInfoLine(chatHistory),
           provider: "deterministic-search",
           chatHistory,
           screenshots,
