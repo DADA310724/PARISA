@@ -18,7 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 
 // ভার্সন ফরম্যাট: V-<n> — প্রতিটি নতুন আপডেটে n ঠিক ১ করে বাড়বে (package.json-এর semver থেকে স্বাধীন)
-const APP_VERSION = "V-35";
+const APP_VERSION = "V-36";
 
 const app = express();
 app.use(cors());
@@ -85,8 +85,8 @@ const geminiPool   = makePool(GEMINI_KEYS,    "gemini");
 const groqPool     = makePool(GROQ_KEYS,      "groq");
 const orPool       = makePool(OPENROUTER_KEYS,"openrouter");
 // V-35: মডেল নাম এক জায়গায় — পুরোনো মডেল বন্ধ হলে Render env দিয়ে বদলানো যাবে
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
-const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.5-flash";
 const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
 const GROQ_FALLBACK_MODEL = process.env.GROQ_FALLBACK_MODEL || "qwen/qwen3.6-27b";
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "openrouter/auto";
@@ -1319,7 +1319,9 @@ async function tryGemini(body, model = GEMINI_MODEL) {
     );
     const data = await r.json();
     if (data?.error) { noteProviderError("gemini:" + model, data.error.message); return null; }
-    return data?.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join("\n") || null;
+    const gText = data?.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join("\n") || null;
+    if (!gText) noteProviderError("gemini-empty:" + model, JSON.stringify(data?.promptFeedback || data?.candidates?.[0]?.finishReason || data).slice(0, 250));
+    return gText;
   } catch (e) { noteProviderError("gemini:" + model, e.message); return null; }
 }
 
@@ -1335,8 +1337,9 @@ async function tryGroq(sys, contents, model = GROQ_MODEL) {
       })
     );
     const data = await r.json();
+    if (!data?.choices?.[0]) noteProviderError("groq:" + model, JSON.stringify(data?.error || data).slice(0, 250));
     return data?.choices?.[0]?.message?.content || null;
-  } catch (e) { console.warn("groq:", e.message); return null; }
+  } catch (e) { noteProviderError("groq:" + model, e.message); return null; }
 }
 
 async function tryDeepseek(sys, contents) {
@@ -1351,8 +1354,9 @@ async function tryDeepseek(sys, contents) {
       })
     );
     const data = await r.json();
+    if (!data?.choices?.[0]) noteProviderError("deepseek", JSON.stringify(data?.error || data).slice(0, 250));
     return data?.choices?.[0]?.message?.content || null;
-  } catch (e) { console.warn("deepseek:", e.message); return null; }
+  } catch (e) { noteProviderError("deepseek", e.message); return null; }
 }
 
 async function tryOpenRouter(sys, contents) {
@@ -1367,8 +1371,9 @@ async function tryOpenRouter(sys, contents) {
       })
     );
     const data = await r.json();
+    if (!data?.choices?.[0]) noteProviderError("openrouter:" + OPENROUTER_MODEL, JSON.stringify(data?.error || data).slice(0, 250));
     return data?.choices?.[0]?.message?.content || null;
-  } catch (e) { console.warn("openrouter:", e.message); return null; }
+  } catch (e) { noteProviderError("openrouter:" + OPENROUTER_MODEL, e.message); return null; }
 }
 
 async function chatWithFallback(body, hasImage) {
