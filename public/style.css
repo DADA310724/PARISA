@@ -1249,3 +1249,99 @@ textarea, input, select { font-family: inherit; color: inherit; }
   color: #00e5b4;
   border-bottom-color: rgba(0,229,180,.10);
 }
+
+/* ══ V-32: উত্তরের ফরম্যাটিং (শিরোনাম, ক্রমিক নম্বর, বুলেট) ══════════════ */
+.msg h3 {
+  font-size: 15px !important;
+  font-weight: 800;
+  color: #00e5b4 !important;
+  margin: 16px 0 8px;
+  padding: 6px 10px;
+  border-left: 3px solid #00e5b4;
+  border-bottom: none !important;
+  background: rgba(0, 229, 180, .08);
+  border-radius: 6px;
+}
+.msg h2 {
+  font-size: 16px !important;
+  font-weight: 800;
+  color: #6ff0ff !important;
+  margin: 16px 0 8px;
+  padding: 6px 10px;
+  border-left: 3px solid #6ff0ff;
+  border-bottom: none !important;
+  background: rgba(95, 232, 255, .07);
+  border-radius: 6px;
+}
+.msg strong { color: #bff7ff; font-weight: 700; }
+.msg ol { list-style: none !important; counter-reset: parisa-num; padding-left: 0 !important; margin: 8px 0 !important; }
+.msg ol > li {
+  counter-increment: parisa-num;
+  position: relative;
+  padding-left: 32px;
+  margin: 8px 0;
+  line-height: 1.6;
+}
+.msg ol > li::before {
+  content: counter(parisa-num);
+  position: absolute; left: 0; top: 1px;
+  width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 229, 180, .18);
+  color: #00e5b4; font-weight: 800; font-size: 12px;
+}
+.msg ul { list-style: none !important; padding-left: 0 !important; margin: 8px 0 !important; }
+.msg ul > li {
+  position: relative;
+  padding-left: 18px;
+  margin: 6px 0;
+  line-height: 1.6;
+}
+.msg ul > li::before {
+  content: "";
+  position: absolute; left: 4px; top: .6em;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #6ff0ff;
+}
+.msg ul ul > li::before { background: #00e5b4; }
+.msg li p { margin: 2px 0; }
+
+/* ══ V-32: স্ক্রিনশট ফুল-ভিউয়ার ════════════════════════════════════════ */
+.iv-overlay { position: fixed; inset: 0; z-index: 9999; }
+.iv-overlay[hidden] { display: none !important; }
+.iv-backdrop { position: absolute; inset: 0; background: rgba(0, 8, 12, .94); }
+.iv-stage {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; touch-action: none;
+}
+.iv-img {
+  max-width: 100vw; max-height: 100vh;
+  object-fit: contain;
+  transform-origin: center center;
+  user-select: none; -webkit-user-drag: none;
+  will-change: transform;
+}
+.iv-close, .iv-nav {
+  position: absolute; z-index: 2;
+  background: rgba(0, 30, 40, .6);
+  border: 1px solid rgba(180, 240, 250, .18);
+  color: #d8f3fb; cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+.iv-close {
+  top: 14px; right: 14px; width: 40px; height: 40px;
+  border-radius: 50%; font-size: 18px; line-height: 1;
+}
+.iv-nav {
+  top: 50%; transform: translateY(-50%);
+  width: 40px; height: 56px; border-radius: 10px; font-size: 28px;
+}
+.iv-prev { left: 8px; }
+.iv-next { right: 8px; }
+.iv-counter {
+  position: absolute; z-index: 2; bottom: 22px; left: 50%; transform: translateX(-50%);
+  background: rgba(0, 30, 40, .65); color: #d8f3fb;
+  padding: 4px 12px; border-radius: 12px; font-size: 13px;
+}
+body.iv-open { overflow: hidden; }

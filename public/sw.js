@@ -1,4 +1,4 @@
-const CACHE = "PARISA-V30";
+const CACHE = "PARISA-V33";
 const STATIC = ["/", "/index.html", "/style.css", "/app.js", "/manifest.json", "/logo.jpg"];
 
 self.addEventListener("install", (e) => {
@@ -68,4 +68,3 @@ self.addEventListener("notificationclick", (e) => {
     return self.clients.openWindow("/");
   }));
 });
-                              

@@ -1487,4 +1487,116 @@ PARISA MEMORY PORTAL এ আপনাকে স্বাগতম।
   // সাইডবার সবসময় শুরু থেকে পুরনো চ্যাট দেখাবে — extra call ensures DOM ready
   setTimeout(() => renderSidebar(), 0);
   showWelcomeIfFirst();
+
+  // ── V-32: স্ক্রিনশট ফুল-ভিউয়ার ───────────────────────────────────────
+  // ছবিতে ক্লিক → পুরো স্ক্রিনে খোলে; বাম/ডান সোয়াইপ বা তীর দিয়ে আগে/পরে;
+  // দুই আঙুলে চিমটি দিয়ে জুম; দ্রুত দুবার ট্যাপে জুম; ডেস্কটপে মাউস হুইল ও Esc।
+  (function initImageViewer() {
+    const viewer = document.getElementById("imgViewer");
+    if (!viewer) return;
+    const img = viewer.querySelector(".iv-img");
+    const counter = viewer.querySelector(".iv-counter");
+    const stage = viewer.querySelector(".iv-stage");
+    const btnPrev = viewer.querySelector(".iv-prev");
+    const btnNext = viewer.querySelector(".iv-next");
+    const MIN = 1, MAX = 5;
+    let items = [], idx = 0, scale = 1, tx = 0, ty = 0;
+    let panX = 0, panY = 0, panTx = 0, panTy = 0, pinchDist = 0, pinchScale = 1;
+    let swipeStartX = null, lastTap = 0;
+
+    const apply = () => { img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; };
+    const resetZoom = () => { scale = 1; tx = 0; ty = 0; apply(); };
+    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+
+    function show(i) {
+      if (!items.length) return;
+      idx = (i + items.length) % items.length;
+      img.src = items[idx].src;
+      img.alt = items[idx].alt || "";
+      resetZoom();
+      const many = items.length > 1;
+      counter.hidden = !many;
+      counter.textContent = many ? `${idx + 1} / ${items.length}` : "";
+      btnPrev.hidden = !many;
+      btnNext.hidden = !many;
+    }
+    function open(list, start) {
+      items = list;
+      viewer.hidden = false;
+      document.body.classList.add("iv-open");
+      show(start);
+    }
+    function close() {
+      viewer.hidden = true;
+      img.removeAttribute("src");
+      document.body.classList.remove("iv-open");
+    }
+
+    document.addEventListener("click", (e) => {
+      const el = e.target.closest && e.target.closest("img.drive-img");
+      if (!el || !el.src) return;
+      const scope = el.closest(".msg") || document;
+      const all = Array.from(scope.querySelectorAll("img.drive-img")).filter(i => i.src && i.style.display !== "none");
+      open(all.map(i => ({ src: i.src, alt: i.alt })), Math.max(0, all.indexOf(el)));
+    });
+
+    stage.addEventListener("touchstart", (e) => {
+      if (e.touches.length === 2) {
+        pinchDist = dist(e.touches);
+        pinchScale = scale;
+        swipeStartX = null;
+      } else if (e.touches.length === 1) {
+        const t = e.touches[0];
+        panX = t.clientX; panY = t.clientY; panTx = tx; panTy = ty;
+        swipeStartX = t.clientX;
+        const now = Date.now();
+        if (now - lastTap < 300) { scale = scale > 1 ? 1 : 2.5; tx = 0; ty = 0; apply(); }
+        lastTap = now;
+      }
+    }, { passive: true });
+
+    stage.addEventListener("touchmove", (e) => {
+      if (e.touches.length === 2 && pinchDist) {
+        e.preventDefault();
+        scale = Math.min(MAX, Math.max(MIN, pinchScale * (dist(e.touches) / pinchDist)));
+        apply();
+      } else if (e.touches.length === 1 && scale > 1) {
+        e.preventDefault();
+        const t = e.touches[0];
+        tx = panTx + (t.clientX - panX);
+        ty = panTy + (t.clientY - panY);
+        apply();
+      }
+    }, { passive: false });
+
+    stage.addEventListener("touchend", (e) => {
+      if (e.touches.length === 0) {
+        if (swipeStartX !== null && scale <= 1.05 && items.length > 1) {
+          const dx = e.changedTouches[0].clientX - swipeStartX;
+          if (Math.abs(dx) > 50) show(idx + (dx < 0 ? 1 : -1));
+        }
+        if (scale < 1) resetZoom();
+        pinchDist = 0;
+      }
+      swipeStartX = null;
+    });
+
+    stage.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      scale = Math.min(MAX, Math.max(MIN, scale * (e.deltaY < 0 ? 1.1 : 0.9)));
+      if (scale <= 1) { tx = 0; ty = 0; }
+      apply();
+    }, { passive: false });
+
+    viewer.querySelector(".iv-close").addEventListener("click", close);
+    viewer.querySelector(".iv-backdrop").addEventListener("click", close);
+    btnPrev.addEventListener("click", () => show(idx - 1));
+    btnNext.addEventListener("click", () => show(idx + 1));
+    document.addEventListener("keydown", (e) => {
+      if (viewer.hidden) return;
+      if (e.key === "Escape") close();
+      else if (e.key === "ArrowLeft") show(idx - 1);
+      else if (e.key === "ArrowRight") show(idx + 1);
+    });
+  })();
 })();

@@ -65,7 +65,7 @@
     <div class="side-foot">
       <button class="side-btn" id="openSettings">
         <span style="display:inline-flex;align-items:center;gap:10px"><svg class="ic"><use href="#i-gear"/></svg> সেটিংস</span>
-        <span class="side-version">V-30</span>
+        <span class="side-version">V-33</span>
       </button>
       <div class="side-dev">
         <span class="side-dev-text">THIS APPS DEVELOPMENT BY <span class="dev-dada">DADA</span></span>
@@ -254,6 +254,14 @@
   </div>
 </div>
 
+<div id="imgViewer" class="iv-overlay" hidden>
+  <div class="iv-backdrop"></div>
+  <button class="iv-close" type="button" aria-label="বন্ধ করুন">✕</button>
+  <button class="iv-nav iv-prev" type="button" aria-label="আগের ছবি">‹</button>
+  <div class="iv-stage"><img class="iv-img" alt=""></div>
+  <button class="iv-nav iv-next" type="button" aria-label="পরের ছবি">›</button>
+  <div class="iv-counter" hidden></div>
+</div>
 <script src="app.js"></script>
 </body>
 </html>
