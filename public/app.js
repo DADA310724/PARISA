@@ -1027,7 +1027,8 @@ PARISA MEMORY PORTAL এ আপনাকে স্বাগতম।
   let callOn = false, callRecognizer = null;
   $("#audioCallBtn").onclick  = () => startAudioCall();
   $("#endAudioCall").onclick  = () => endAudioCall();
-  $("#muteAudioCall").onclick = () => { if (callRecognizer) callRecognizer.stop(); };
+  const muteBtn = $("#muteAudioCall");
+  if (muteBtn) muteBtn.onclick = () => { if (callRecognizer) callRecognizer.stop(); };
 
   // ── Call state → mic-ring + photo + name colour ──────────────────
   function setCallState(state) {
