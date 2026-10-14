@@ -1286,6 +1286,7 @@ PARISA MEMORY PORTAL এ আপনাকে স্বাগতম।
     $("#videoCallCaption").textContent = "";
     updateUserCaption("", "vcUserCaption");
     await openVcCam();
+    startVcFrameTimer();
     if (SR) {
       $("#videoCallStatus").textContent = "শুনছি…";
       videoCallLoop();
@@ -1293,8 +1294,24 @@ PARISA MEMORY PORTAL এ আপনাকে স্বাগতম।
       $("#videoCallStatus").textContent = "ক্যামেরা চালু — নিচের বাটন দিয়ে প্রশ্ন করুন";
     }
   }
+  let vcFrameTimer = null;
+  function startVcFrameTimer() {
+    stopVcFrameTimer();
+    vcFrameTimer = setInterval(() => {
+      if (!vcOn) return;
+      const vid = $("#videoCallVideo");
+      if (!vid || !vid.videoWidth) return;
+      const img = snapshot(vid, $("#videoCallCanvas"));
+      fetch(api("/video-frame"), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: img, label: "ভিডিও কল — ক্যামেরা" }),
+      }).catch(() => {});
+    }, 2000);
+  }
+  function stopVcFrameTimer() { if (vcFrameTimer) { clearInterval(vcFrameTimer); vcFrameTimer = null; } }
   function endVideoCall() {
     vcOn = false;
+    stopVcFrameTimer();
     if (vcRecognizer) { try { vcRecognizer.stop(); } catch {} }
     if (vcStream) { vcStream.getTracks().forEach(t => t.stop()); vcStream = null; }
     _stopAll();

