@@ -18,7 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 
 // ভার্সন ফরম্যাট: V-<n> — প্রতিটি নতুন আপডেটে n ঠিক ১ করে বাড়বে (package.json-এর semver থেকে স্বাধীন)
-const APP_VERSION = "V-38";
+const APP_VERSION = "V-39";
 
 const app = express();
 app.use(cors());
@@ -709,7 +709,9 @@ async function analyzeHistoryRows(rows) {
       contents: [{ role: "user", parts: [{ text: payload }] }],
       generationConfig: { temperature: 0.1, maxOutputTokens: 3000, thinkingConfig: { thinkingBudget: 0 } },
     };
-    const { reply } = await chatWithFallback(body, false);
+    const timed = (p, ms) => Promise.race([p, new Promise(res => setTimeout(() => res(null), ms))]);
+    const aiRes = await timed(chatWithFallback(body, false), 8000); // V-39: ৮ সেকেন্ডের বেশি হলে সাধারণ বিশ্লেষণ
+    const reply = aiRes && aiRes.reply;
     if (!reply) return fallback;
     const match = reply.match(/\[[\s\S]*\]/);
     if (!match) return fallback;
