@@ -1926,10 +1926,9 @@ function mount(prefix) {
         const screenshots = continuation ? [] : await screenshotsForHistorySearch(searchQuery, searchData.rows);
         const finalReply = chatHistory.length
           ? `আপনার অনুরোধ অনুযায়ী ${chatHistory.length}টি আসল মেসেজ দেখানো হলো।${screenshots.length ? " একই তারিখের প্রাসঙ্গিক screenshot-ও দেখানো হয়েছে।" : ""}`
-          : offset > 0
+          : (pStart + rStart) > 0
             ? "এই history-র আর কোনো পরের message পাওয়া যায়নি।"
             : "এই তারিখ বা বিষয়ের কোনো মেসেজ ডেটাবেসে পাওয়া যায়নি।";
-        const nextOffset = offset + chatHistory.length;
         const nextHistoryContext = {
           query: searchQuery,
           pOff: sel.pOff,
