@@ -1475,6 +1475,7 @@ PARISA MEMORY PORTAL এ আপনাকে স্বাগতম।
         img.src = `${api("/image/")}${encodeURIComponent(shot.id)}`;
         img.alt = shot.name || "সcreenshot";
         img.loading = "lazy";
+    img.className = "drive-img";
         const caption = document.createElement("figcaption");
         caption.textContent = `${shot.name || "Screenshot"}${shot.date ? ` — ${shot.date}` : ""}`;
         card.append(img, caption);
@@ -1553,7 +1554,7 @@ PARISA MEMORY PORTAL এ আপনাকে স্বাগতম।
     document.addEventListener("click", (e) => {
       const el = e.target.closest && e.target.closest("img.drive-img");
       if (!el || !el.src) return;
-      const scope = el.closest(".msg") || document;
+      const scope = el.closest(".msg, .history-screenshots") || document;
       const all = Array.from(scope.querySelectorAll("img.drive-img")).filter(i => i.src && i.style.display !== "none");
       open(all.map(i => ({ src: i.src, alt: i.alt })), Math.max(0, all.indexOf(el)));
     });

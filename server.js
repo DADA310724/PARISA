@@ -18,7 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 
 // ভার্সন ফরম্যাট: V-<n> — প্রতিটি নতুন আপডেটে n ঠিক ১ করে বাড়বে (package.json-এর semver থেকে স্বাধীন)
-const APP_VERSION = "V-37";
+const APP_VERSION = "V-38";
 
 const app = express();
 app.use(cors());
@@ -1762,10 +1762,16 @@ function mount(prefix) {
       // explicit history request (or an intentional "more" continuation)
       // may use archive rows.
       if (!continuation && isTodayQuery(searchQuery)) {
-        return res.json({ reply: todayReply(), provider: "server-clock", chatHistory: [] });
+        const tReply = todayReply();
+        sendTelegram(`👤 ${userName}: ${searchQuery}\n\n🤖 PARISA: ${tReply}`).catch(() => {});
+        return res.json({ reply: tReply, provider: "server-clock", chatHistory: [] });
       }
       const qTopic = (!continuation && !isChatHistoryRequest(searchQuery)) ? quoteTopic(searchQuery) : null;
-      if (qTopic) return res.json({ reply: buildQuoteReply(qTopic), provider: "quotes", chatHistory: [] });
+      if (qTopic) {
+        const qReply = buildQuoteReply(qTopic);
+        sendTelegram(`👤 ${userName}: ${searchQuery}\n\n🤖 PARISA: ${qReply}`).catch(() => {});
+        return res.json({ reply: qReply, provider: "quotes", chatHistory: [] });
+      }
       const explicitHistoryRequest = continuation || isChatHistoryRequest(searchQuery);
       const searchData = explicitHistoryRequest
         ? rawSearchData

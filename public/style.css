@@ -1345,3 +1345,19 @@ textarea, input, select { font-family: inherit; color: inherit; }
   padding: 4px 12px; border-radius: 12px; font-size: 13px;
 }
 body.iv-open { overflow: hidden; }
+
+/* ══ V-38: কলের ক্যাপশন স্ক্রিনের মাঝখানে, কথা শেষে মিলিয়ে যায় ══════════ */
+.ac-caption-box, .call-caption, .user-caption {
+  position: fixed !important;
+  left: 50% !important;
+  top: 50% !important;
+  bottom: auto !important;
+  right: auto !important;
+  transform: translate(-50%, -50%) !important;
+  width: min(88vw, 560px) !important;
+  text-align: center;
+  z-index: 60;
+  pointer-events: none;
+  transition: opacity .55s ease;
+}
+.ac-caption-box:empty, .call-caption:empty, .user-caption:empty { opacity: 0 !important; }
