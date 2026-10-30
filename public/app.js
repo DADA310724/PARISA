@@ -854,7 +854,7 @@ PARISA MEMORY PORTAL এ আপনাকে স্বাগতম।
         const msgs = allMsgs.length > 12 ? allMsgs.slice(-12) : allMsgs;
         const r = await fetch(api("/chat"), {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+          body: JSON.stringify({ mode: "call",
             messages: msgs,
             userName: settings.userName,
             historyContext: c.historyContext || null,
@@ -881,6 +881,7 @@ PARISA MEMORY PORTAL এ আপনাকে স্বাগতম।
       // Typing animation + chat history bubbles
       typeOut(botMsg, () => {
         if (chatHistory && chatHistory.length > 0) appendChatHistory(chatHistory, screenshots);
+        else if (screenshots && screenshots.length) appendScreenshotsOnly(screenshots);
       });
       speak(botMsg.text);
 
@@ -1419,6 +1420,31 @@ PARISA MEMORY PORTAL এ আপনাকে স্বাগতম।
   // These cells are populated from the server's database rows, not from
   // the language model's markdown, so message text cannot be translated
   // or truncated by the model.
+  // V-40: শুধু স্ক্রিনশট দেখানোর জন্য (কোনো মেসেজ টেবিল ছাড়া) — ছবিতে ক্লিক করলে ফুল-ডিসপ্লে ভিউয়ার
+  function appendScreenshotsOnly(screenshots) {
+    const wrap = document.createElement("div");
+    wrap.className = "msg-row assistant";
+    const outer = document.createElement("div");
+    outer.className = "msg assistant chat-history-block";
+    const proof = document.createElement("div");
+    proof.className = "history-screenshots";
+    for (const shot of screenshots) {
+      const card = document.createElement("figure");
+      card.className = "history-screenshot";
+      const img = document.createElement("img");
+      img.className = "drive-img";
+      img.src = `${api("/image/")}${encodeURIComponent(shot.id)}`;
+      img.alt = shot.name || "screenshot";
+      img.loading = "lazy";
+      card.append(img);
+      proof.appendChild(card);
+    }
+    outer.appendChild(proof);
+    wrap.appendChild(outer);
+    const box = document.getElementById("messages") || document.querySelector(".messages") || document.body;
+    box.appendChild(wrap);
+    box.scrollTop = box.scrollHeight;
+  }
   function appendChatHistory(messages, screenshots = [], shouldScroll = true) {
     if (!messages || !messages.length) return;
     const wrap = document.createElement("div");

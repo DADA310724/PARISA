@@ -18,7 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 
 // ভার্সন ফরম্যাট: V-<n> — প্রতিটি নতুন আপডেটে n ঠিক ১ করে বাড়বে (package.json-এর semver থেকে স্বাধীন)
-const APP_VERSION = "V-39";
+const APP_VERSION = "V-40";
 
 const app = express();
 app.use(cors());
@@ -689,6 +689,59 @@ function buildQuoteReply(topic) {
 }
 // V-37-END
 
+// V-40-START — পাতা ভাগ, স্ক্রিনশট-শুধু চেক, নিকটতম তারিখ
+function balancedPage(pRows, rRows, pOff, rOff, size) {
+  const wantP = Math.ceil(size * 0.7);
+  const pTake = pRows.slice(pOff, pOff + wantP);
+  const rTake = rRows.slice(rOff, rOff + (size - pTake.length));
+  let pEnd = pOff + pTake.length;
+  const rEnd = rOff + rTake.length;
+  const extra = size - pTake.length - rTake.length;
+  let pAll = pTake;
+  if (extra > 0) {
+    const more = pRows.slice(pEnd, pEnd + extra);
+    pAll = pTake.concat(more);
+    pEnd += more.length;
+  }
+  return { rows: pAll.concat(rTake), pOff: pEnd, rOff: rEnd };
+}
+function isScreenshotOnlyQuery(q) {
+  const s = String(q || "");
+  const wantsShot = /স্ক্রিনশট|স্ক্যান|ছবি|screenshot|scan|photo|image/i.test(s);
+  const wantsChat = /মেসেজ|চ্যাট|হিস্টরি|হিস্ট্রি|উক্তি|কথা|message|chat|history/i.test(s);
+  return wantsShot && !wantsChat;
+}
+const EN_MONTH_NAMES = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+function toAsciiDigits(s) {
+  return String(s).replace(/[০-৯]/g, d => String("০১২৩৪৫৬৭৮৯".indexOf(d)));
+}
+function nearbyDatesReply(q) {
+  const s = toAsciiDigits(q).toLowerCase();
+  const yearM = s.match(/(20\d{2})/);
+  const bnRe = BN_MONTHS.join("|");
+  const enRe = EN_MONTH_NAMES.join("|");
+  const m1 = s.match(new RegExp(`(\\d{1,2})\\s*(?:শে\\s*|তারিখ\\s*)?(${bnRe}|${enRe})`, "i"));
+  const m2 = s.match(new RegExp(`(${bnRe}|${enRe})\\s*(?:মাসের\\s*|মাস\\s*)?(\\d{1,2})`, "i"));
+  const day = m1 ? Number(m1[1]) : m2 ? Number(m2[2]) : null;
+  const monName = m1 ? m1[2] : m2 ? m2[1] : null;
+  let mi = -1;
+  if (monName) {
+    mi = BN_MONTHS.indexOf(monName);
+    if (mi < 0) mi = EN_MONTH_NAMES.indexOf(monName.toLowerCase());
+  }
+  if (!yearM || mi < 0) return "এই তারিখে ডেটাবেসে কোনো মেসেজ নেই।";
+  const ym = `${yearM[1]}-${String(mi + 1).padStart(2, "0")}`;
+  const days = [...new Set(GLOBAL_TIMELINE.map(m => String(m.timestamp || "").slice(0, 10)).filter(d => d.startsWith(ym)))].sort();
+  if (!days.length) return `${toBnDigits(yearM[1])} সালের ${BN_MONTHS[mi]} মাসে ডেটাবেসে কোনো মেসেজ নেই।`;
+  const near = day
+    ? [...days].sort((x, y) => Math.abs(Number(x.slice(8)) - day) - Math.abs(Number(y.slice(8)) - day)).slice(0, 5).sort()
+    : days.slice(0, 5);
+  const label = day ? `${toBnDigits(day)} ${BN_MONTHS[mi]} ${toBnDigits(yearM[1])}` : `${BN_MONTHS[mi]} ${toBnDigits(yearM[1])}`;
+  const list = near.map(d => `${toBnDigits(d.slice(8))} ${BN_MONTHS[mi]} ${toBnDigits(yearM[1])}`).join(", ");
+  return `${label} তারিখে ডেটাবেসে কোনো মেসেজ নেই। ওই মাসে মেসেজ আছে এমন নিকটতম তারিখ: ${list}।`;
+}
+// V-40-END
+
 // V-32: প্রতিটি মেসেজের আসল বিশ্লেষণ — শুধু মেসেজের লেখা থেকে, ব্যর্থ হলে সাধারণ সারাংশ।
 const ANALYSIS_SYSTEM = [
   "তুমি একজন নির্ভুল চ্যাট বিশ্লেষক। প্রতিটি মেসেজের জন্য বাংলায় ১-২ বাক্যে বিশ্লেষণ লেখো।",
@@ -699,29 +752,63 @@ const ANALYSIS_SYSTEM = [
   "- উত্তর শুধু একটি JSON array হবে, যেমন [\"বিশ্লেষণ ১\", \"বিশ্লেষণ ২\"]। এর বাইরে কিছু লিখবে না।",
 ].join("\n");
 
+// V-40: বিশ্লেষণ — ক্যাশসহ, একটি AI কল প্রতি পাতায়, ব্যর্থ হলে নির্দিষ্ট স্থানীয় বিশ্লেষণ
+const analysisCache = new Map();
+function localAnalysis(text) {
+  const t = String(text || "").trim();
+  const l = t.toLowerCase();
+  if (!t) return "খালি বার্তা।";
+  if (/📎|media shared|photo|video|audio|sticker|voice message/i.test(t)) return "মিডিয়া বা ফাইল শেয়ার করা হয়েছে।";
+  if (/sorry|দুঃখিত|মাফ|ক্ষমা/i.test(t)) return "ক্ষমা চাওয়ার বার্তা।";
+  if (/থানা|মামলা|আইন|তালাক|আদালত|কোর্ট|পুলিশ|মহর|দেনমোহর|thana|mamla|talak|aain/i.test(t)) return "আইনি বা থানা/মামলা সম্পর্কিত উল্লেখ।";
+  if (/জাদু|তাবিজ|কালো যাদু|টোনা|ব্ল্যাক ম্যাজিক|black magic|jadu|tabiz|tona/i.test(t)) return "জাদু বা তাবিজ সম্পর্কিত উল্লেখ।";
+  if (/নামাজ|নামায|দোয়া|দোআ|আল্লাহ|namaj|namaz|dua|allah/i.test(t)) return "ধর্মীয় বিষয়ের (নামাজ/দোয়া) উল্লেখ।";
+  if (/ভালোবাস|ভালবাস|মিস|আদর|love|miss|valobas|valobash/i.test(t)) return "ভালোবাসা বা স্নেহ প্রকাশের বার্তা।";
+  if (/গালি|গালাগাল|রাগ|চিৎকার|অপমান|gali|galag|rag/i.test(t)) return "রাগ বা উত্তেজনার প্রকাশ।";
+  if (/কষ্ট|কান্না|মন খারাপ|একা|kosto|kanna|mon kharap/i.test(t)) return "কষ্ট বা মন খারাপের প্রকাশ।";
+  if (/assalam|আসসালা|salam|হ্যালো|hello|^hi\b/i.test(l)) return "সম্ভাষণ বার্তা।";
+  if (/\btarikh\b|তারিখ|\d+\s*tarikh/i.test(t)) return "একটি নির্দিষ্ট তারিখ বা সময়ের উল্লেখ।";
+  if (/\bna\b|\bnai\b|\bnah\b|না\s*$|নেই/i.test(t)) return "না/নেই বলে উত্তর বা অস্বীকার প্রকাশ।";
+  if (/\?|কি |কেন|কোথায়|কখন|কিভাবে|কীভাবে|ki |keno|kothay|kokhon|kivabe/i.test(t)) return "প্রশ্ন করা হয়েছে, উত্তর জানতে চাওয়া হয়েছে।";
+  if (t.length <= 12) return "ছোট উত্তর বা প্রতিক্রিয়া।";
+  return "সাধারণ কথোপকথনের বার্তা।";
+}
 async function analyzeHistoryRows(rows) {
-  const fallback = rows.map(m => summarizeHistoryMessage(m.txt));
-  if (!rows.length) return fallback;
-  try {
-    const payload = rows.map((m, i) => `${i + 1}. [${m.snd}] ${m.txt}`).join("\n");
-    const body = {
-      systemInstruction: { parts: [{ text: ANALYSIS_SYSTEM }] },
-      contents: [{ role: "user", parts: [{ text: payload }] }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 3000, thinkingConfig: { thinkingBudget: 0 } },
-    };
-    const timed = (p, ms) => Promise.race([p, new Promise(res => setTimeout(() => res(null), ms))]);
-    const aiRes = await timed(chatWithFallback(body, false), 8000); // V-39: ৮ সেকেন্ডের বেশি হলে সাধারণ বিশ্লেষণ
-    const reply = aiRes && aiRes.reply;
-    if (!reply) return fallback;
-    const match = reply.match(/\[[\s\S]*\]/);
-    if (!match) return fallback;
-    const arr = JSON.parse(match[0]);
-    if (!Array.isArray(arr) || arr.length !== rows.length) return fallback;
-    return arr.map((a, i) => (typeof a === "string" && a.trim()) ? a.trim() : fallback[i]);
-  } catch (e) {
-    console.warn("analysis:", e.message);
-    return fallback;
+  const keyOf = m => `${m.ts}|${m.snd}|${m.txt}`;
+  const out = new Array(rows.length);
+  const todo = [];
+  rows.forEach((m, i) => {
+    const k = keyOf(m);
+    if (analysisCache.has(k)) out[i] = analysisCache.get(k);
+    else todo.push(i);
+  });
+  if (todo.length) {
+    let aiArr = null;
+    try {
+      const payload = todo.map((i, n) => `${n + 1}. [${rows[i].snd}] ${rows[i].txt}`).join("\n");
+      const body = {
+        systemInstruction: { parts: [{ text: ANALYSIS_SYSTEM }] },
+        contents: [{ role: "user", parts: [{ text: payload }] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 4000, thinkingConfig: { thinkingBudget: 0 } },
+      };
+      const aiRes = await Promise.race([
+        chatWithFallback(body, false),
+        new Promise(res => setTimeout(() => res(null), 10000)),
+      ]);
+      const reply = aiRes && aiRes.reply;
+      const match = reply && reply.match(/\[[\s\S]*\]/);
+      if (match) {
+        const arr = JSON.parse(match[0]);
+        if (Array.isArray(arr) && arr.length === todo.length) aiArr = arr;
+      }
+    } catch (e) { noteProviderError("analysis", e.message); }
+    todo.forEach((i, n) => {
+      const ai = aiArr && typeof aiArr[n] === "string" && aiArr[n].trim() ? aiArr[n].trim() : null;
+      out[i] = ai || localAnalysis(rows[i].txt);
+      if (ai) analysisCache.set(keyOf(rows[i]), ai);
+    });
   }
+  return out;
 }
 
 function summarizeHistoryMessage(text) {
@@ -1457,9 +1544,14 @@ async function tryOpenRouter(sys, contents) {
   } catch (e) { noteProviderError("openrouter:" + OPENROUTER_MODEL, e.message); return null; }
 }
 
-async function chatWithFallback(body, hasImage) {
+async function chatWithFallback(body, hasImage, fast = false) {
   const sys = body.systemInstruction.parts[0].text;
   const contents = body.contents;
+  if (fast && !hasImage) {
+    // V-40: কলে Groq আগে (দ্রুত), না হলে নিচের Gemini চেইন
+    const gFast = (await tryGroq(sys, contents, GROQ_MODEL)) || (await tryGroq(sys, contents, GROQ_FALLBACK_MODEL));
+    if (gFast) return { reply: gFast, provider: "groq" };
+  }
   let r1 = null;
   for (const gm of GEMINI_MODELS) { r1 = await tryGemini(body, gm); if (r1) break; }
   if (r1) return { reply: r1, provider: "gemini" };
@@ -1748,6 +1840,7 @@ function mount(prefix) {
         historyContext = null,
       } = req.body || {};
       refreshDriveMemory().catch(() => {});
+      const isCall = req.body?.mode === "call"; // V-40: কল হলে দ্রুত মডেল ক্রম
 
       // ── প্রতি ৩০ মিনিটে Drive auto-refresh ──
       const lastUserMsg2 = messages[messages.length - 1]?.text || "";
@@ -1800,11 +1893,24 @@ function mount(prefix) {
       // A history table is a database operation, not an AI-generation
       // operation. Return exact rows immediately so a slow or unavailable
       // provider can never delay, rewrite, or truncate the archive result.
+      if (!continuation && isScreenshotOnlyQuery(searchQuery)) {
+        const onlyShots = await screenshotsForHistorySearch(searchQuery, searchData.rows);
+        const sReply = onlyShots.length
+          ? `স্ক্রিনশট দেখানো হলো (${onlyShots.length}টি)।`
+          : "এই তারিখের কোনো স্ক্রিনশট পাওয়া যায়নি।";
+        return res.json({ reply: sReply, provider: "screenshot-only", chatHistory: [], screenshots: onlyShots });
+      }
+      if (searchData.isHistoryQuery && searchData.rows.length === 0) {
+        return res.json({ reply: nearbyDatesReply(searchQuery), provider: "no-data", chatHistory: [] });
+      }
       if (searchData.isHistoryQuery) {
-        const offset = continuation
-          ? Math.max(0, Number(historyContext.offset) || 0)
-          : 0;
-        const pageRows = searchData.rows.slice(offset, offset + HISTORY_PAGE_SIZE);
+        const allRows = searchData.rows;
+        const pRows = allRows.filter(m => m.snd === "Parisa");
+        const rRows = allRows.filter(m => m.snd !== "Parisa");
+        const pStart = continuation ? Math.max(0, Number(historyContext.pOff) || 0) : 0;
+        const rStart = continuation ? Math.max(0, Number(historyContext.rOff) || 0) : 0;
+        const sel = balancedPage(pRows, rRows, pStart, rStart, HISTORY_PAGE_SIZE);
+        const pageRows = sel.rows.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
         const pageAnalyses = await analyzeHistoryRows(pageRows);
         const chatHistory = pageRows.map((m, idx) => ({
           ts: m.ts,
@@ -1826,8 +1932,10 @@ function mount(prefix) {
         const nextOffset = offset + chatHistory.length;
         const nextHistoryContext = {
           query: searchQuery,
-          offset: nextOffset,
-          hasMore: nextOffset < searchData.rows.length,
+          pOff: sel.pOff,
+          rOff: sel.rOff,
+          offset: sel.pOff + sel.rOff,
+          hasMore: sel.pOff < pRows.length || sel.rOff < rRows.length,
         };
         logFirebase({ userName, userMessage: lastUserMsg2, aiReply: finalReply, provider: "deterministic-search", hasImage: false }).catch(() => {});
         sendTelegram(`👤 ${userName}: ${lastUserMsg2}\n\n🤖 PARISA: ${finalReply}`).catch(() => {});
@@ -1855,7 +1963,7 @@ function mount(prefix) {
         contents,
         generationConfig: { temperature: 0.15, maxOutputTokens: 4096, thinkingConfig: { thinkingBudget: 0 } },
       };
-      const { reply, provider } = await chatWithFallback(body, !!image);
+      const { reply, provider } = await chatWithFallback(body, !!image, isCall);
       const rawReply = reply || (
         searchData.rows.length
           ? "আপনার অনুরোধের সঙ্গে মিলে যাওয়া আসল মেসেজগুলো নিচের টেবিলে দেখানো হয়েছে।"
